@@ -9,7 +9,9 @@ size = 1920, 1080
 OFFSET_X = size[0] // 2
 OFFSET_Y = size[1] // 2
 GREEN = (0, 255, 0)
-M=0.5
+M = 0.5
+SCROLL_MULT = 1
+MIN_SCROLL_MULT = 0.1
 
 def normal_round(num, n_digits=0):
     if n_digits == 0:
@@ -117,7 +119,7 @@ class Item:
         else:
             self.img_name = None
 
-
+selection = "storage_mk.I"
 class Graph:
     ITEMS = {
         "gear": Item("gear", 1, ["iron_ingot"], [1], "Icon_Gear.png"),
@@ -138,7 +140,22 @@ class Graph:
                               "Icon_Circuit_Board.png"),
         "mining_machine": Item("mining_machine", 1, ["iron_ingot", "circuit_board", "magnetic_coil", "gear"],
                                [4, 2, 2, 2],
-                               "Icon_Mining_Machine.png")
+                               "Icon_Mining_Machine.png"),
+        "conveyor_belt_mk.I": Item("conveyor_belt_mk.I", 3, ["iron_ingot", "gear"],
+                               [2,1],
+                               "Icon_Conveyor_Belt_Mk.I.png"),
+        "sorter_mk.I": Item("sorter_mk.I", 1, ["iron_ingot", "circuit_board"],
+                                   [1, 1],
+                                   "Icon_Sorter_Mk.I.png"),
+        "stone_brick": Item("stone_brick", 1, ["stone"],
+                            [1],
+                            "Icon_Stone_Brick.png"),
+        "stone": Item("stone", 1, None,
+                            None,
+                            "Icon_Stone.png"),
+        "storage_mk.I": Item("storage_mk.I", 1, ["iron_ingot", "stone_brick"],
+                            [4, 4],
+                            "Icon_Storage_Mk.I.png"),
 
     }
 
@@ -208,6 +225,9 @@ class Graph:
     def draw(self):
         global OFFSET_X
         global OFFSET_Y
+        global M
+        global SCROLL_MULT
+
         paths, layers, heights = self.get_paths()
         paths_num = {}
         ANGLE = 45
@@ -247,6 +267,7 @@ class Graph:
         dragging = False
         clock = pygame.time.Clock()
         while run:
+
             clock.tick(FPS)
             screen.fill(BLACK)
             for event in pygame.event.get():
@@ -257,6 +278,14 @@ class Graph:
                     first_drag = True
                 elif event.type == pygame.MOUSEBUTTONUP:
                     dragging = False
+                elif event.type == pygame.MOUSEBUTTONUP:
+                    dragging = False
+                if event.type == pygame.MOUSEWHEEL:
+                    M += event.y * SCROLL_MULT
+                    if M <= SCROLL_MULT:
+                        M = SCROLL_MULT
+                        if MIN_SCROLL_MULT < SCROLL_MULT:
+                            SCROLL_MULT /= 2
 
             if dragging:
                 pos = pygame.mouse.get_pos()
@@ -291,12 +320,17 @@ class Graph:
                     pygame.display.set_caption('image')
                 else:
                     imp = pygame.image.load(Graph.ITEMS[name_clean].img_name).convert_alpha()
-
+                    imp = pygame.transform.scale(imp, (imp.get_width()*M*2, imp.get_height()*M*2))
                     screen.blit(imp, ((M*positions[key][0] + OFFSET_X - imp.get_width() // 2),
                                       (M*positions[key][1] + OFFSET_Y - imp.get_height() // 2)))
+
+
+
             pygame.display.flip()
         pygame.quit()
 
 
-line = Graph("mining_machine")
+line = Graph(selection)
+
+
 line.draw()
