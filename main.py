@@ -9,7 +9,7 @@ size = 1920, 1080
 OFFSET_X = size[0] // 2
 OFFSET_Y = size[1] // 2
 GREEN = (0, 255, 0)
-
+M=0.5
 
 def normal_round(num, n_digits=0):
     if n_digits == 0:
@@ -109,21 +109,37 @@ class ChemicalPlant(Building):
 
 
 class Item:
-    def __init__(self, name, n, components=None, n_com=None):
+    def __init__(self, name, n, components=None, n_com=None, img_name=None):
         self.name = name
         self.components = components
+        if img_name:
+            self.img_name = "Icons/" + img_name
+        else:
+            self.img_name = None
 
 
 class Graph:
     ITEMS = {
-        "gear": Item("gear", 1, ["iron_ingot"], [1]),
-        "iron_ingot": Item("iron_ingot", 1, ["iron_ore"], [1]),
-        "iron_ore": Item("iron_ore", 1, None, None),
-        "copper_ore": Item("copper_ore", 1, None, None),
-        "magnet": Item("magnet", 1, ["iron_ore"], [1]),
-        "copper_ingot": Item("copper_ingot", 1, ["copper_ore"], [1]),
-        "magnetic_coil": Item("magnetic_coil", 2, ["magnet", "copper_ingot"], [2, 1]),
-        "electric_motor": Item("electric_motor", 1, ["iron_ingot", "gear", "magnetic_coil"], [2, 1, 1])
+        "gear": Item("gear", 1, ["iron_ingot"], [1], "Icon_Gear.png"),
+        "iron_ingot": Item("iron_ingot", 1, ["iron_ore"], [1], "Icon_Iron_Ingot.png"),
+        "iron_ore": Item("iron_ore", 1, None, None, "Icon_Iron_Ore.png"),
+        "copper_ore": Item("copper_ore", 1, None, None, "Icon_Copper_Ore.png"),
+        "magnet": Item("magnet", 1, ["iron_ore"], [1], "Icon_Magnet.png"),
+        "copper_ingot": Item("copper_ingot", 1, ["copper_ore"], [1], "Icon_Copper_Ingot.png"),
+        "magnetic_coil": Item("magnetic_coil", 2, ["magnet", "copper_ingot"], [2, 1], "Icon_Magnetic_Coil.png"),
+        "electric_motor": Item("electric_motor", 1, ["iron_ingot", "gear", "magnetic_coil"], [2, 1, 1],
+                               "Icon_Electric_Motor.png"),
+        "wind_turbine": Item("wind_turbine", 1, ["iron_ingot", "gear", "magnetic_coil"], [6, 1, 3],
+                             "Icon_Wind_Turbine.png"),
+        "tesla_tower": Item("tesla_tower", 1, ["iron_ingot", "magnetic_coil"], [1, 1],
+                            "Icon_Tesla_Tower.png"),
+        "circuit_board": Item("circuit_board", 1, ["iron_ingot", "copper_ingot"],
+                              [2, 1],
+                              "Icon_Circuit_Board.png"),
+        "mining_machine": Item("mining_machine", 1, ["iron_ingot", "circuit_board", "magnetic_coil", "gear"],
+                               [4, 2, 2, 2],
+                               "Icon_Mining_Machine.png")
+
     }
 
     def __init__(self, objective):
@@ -148,25 +164,58 @@ class Graph:
 
     def get_paths(self):
         path = {}
+        path_nums = {"None": -1}
         self.edges = self.find_edges()
+
+        print(self.edges)
         for edge in self.edges:
+            path_nums[str(edge[1])] = path_nums[str(edge[0])] + 1
+
             if edge[0]:
-                if edge[0] not in path.keys():q
+                if edge[0] not in path.keys():
                     path[str(edge[0])] = [edge[1]]
+
                 else:
                     path[str(edge[0])].append(edge[1])
-        return path
+        layers = {}
+        heights = {}
+        for key, val in path_nums.items():
+            if val not in layers.keys():
+                layers[val] = [key]
+            else:
+                layers[val].append(key)
+        for lay in layers:
+            print(len(layers[lay]))
+            for i, item in enumerate(layers[lay]):
+                if len(layers[lay]) % 2 == 0:
+
+                    if i - len(layers[lay]) // 2 >= 0:
+                        heights[item] = i + 1 - len(layers[lay]) // 2
+                    else:
+                        heights[item] = i - len(layers[lay]) // 2
+                else:
+                    if i - len(layers[lay]) // 2 > 0:
+                        heights[item] = i  - len(layers[lay]) // 2
+                    elif i - len(layers[lay]) // 2 < 0 :
+                        heights[item] = i - len(layers[lay]) // 2
+                    else:
+                        heights[item] = 0
+
+
+        print(len(layers), len(heights))
+        return path, layers, heights
 
     def draw(self):
         global OFFSET_X
         global OFFSET_Y
-        paths = self.get_paths()
-        print(paths)
-        print(len(paths))
+        paths, layers, heights = self.get_paths()
         paths_num = {}
         ANGLE = 45
-        LEN = 100
+        LEN = 500
+        LEN_DECAY_MULT = 0.9
         positions = {}
+        print(paths)
+        print(len(heights))
         for p, key in enumerate(paths.keys()):
             lines = len(paths[key])
             if lines % 2 == 0:
@@ -178,15 +227,19 @@ class Graph:
                 angles += [-an for an in angles]
                 angles += [0]
             angles = sorted(angles)
+            x_dif = 0
+
             if p == 0:
                 positions[key] = (0, 0)
             for i, comp in enumerate(paths[key]):
                 if comp not in positions:
-                    positions[comp] = (positions[key][0] - math.cos(math.radians(angles[i])) * LEN,
-                                       positions[key][1] - math.sin(math.radians(angles[i])) * LEN)
-            LEN -= 10
-        print(positions)
-        print(len(positions))
+                    for lay in layers:
+                        if comp in layers[lay]:
+                            x_dif = lay
+
+                    positions[comp] = (LEN * -x_dif,
+                                       heights[comp]*LEN)
+
         pygame.init()
         screen = pygame.display.set_mode(size)
         pygame.display.flip()
@@ -214,22 +267,36 @@ class Graph:
                 OFFSET_Y += diff[1]
                 first_drag = False
                 pos_last = pos
+
             for p, key in enumerate(positions):
                 try:
                     for comp in paths[key]:
-                        pygame.draw.line(screen, ORANGE, (positions[key][0] + OFFSET_X, positions[key][1] + OFFSET_Y),
-                                         (positions[comp][0] + OFFSET_X, positions[comp][1] + OFFSET_Y))
+                        pygame.draw.line(screen, ORANGE, (M*positions[key][0] + OFFSET_X, M*positions[key][1] + OFFSET_Y),
+                                         (M*positions[comp][0] + OFFSET_X, M*positions[comp][1] + OFFSET_Y))
                 except:
                     pass
-                if p == 0:
-                    pygame.draw.circle(screen, GREEN, (positions[key][0] + OFFSET_X, positions[key][1] + OFFSET_Y), 10)
-                else:
-                    print(key,positions[key])
-                    pygame.draw.circle(screen, BLUE, (positions[key][0] + OFFSET_X, positions[key][1] + OFFSET_Y), 10)
 
+                name_array = key.split("_")[:-1]
+                name_clean = "_".join(name_array)
+                if not Graph.ITEMS[name_clean].img_name:
+
+                    if p == 0:
+
+                        pygame.draw.circle(screen, GREEN, (M*positions[key][0] + OFFSET_X, positions[key][1] + OFFSET_Y),
+                                           10)
+                    else:
+                        pygame.draw.circle(screen, BLUE, (M*positions[key][0] + OFFSET_X, positions[key][1] + OFFSET_Y),
+                                           10)
+
+                    pygame.display.set_caption('image')
+                else:
+                    imp = pygame.image.load(Graph.ITEMS[name_clean].img_name).convert_alpha()
+
+                    screen.blit(imp, ((M*positions[key][0] + OFFSET_X - imp.get_width() // 2),
+                                      (M*positions[key][1] + OFFSET_Y - imp.get_height() // 2)))
             pygame.display.flip()
         pygame.quit()
 
 
-line = Graph("electric_motor")
+line = Graph("mining_machine")
 line.draw()
