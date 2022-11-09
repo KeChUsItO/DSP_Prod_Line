@@ -9,7 +9,9 @@ size = 1920, 1080
 OFFSET_X = size[0] // 2
 OFFSET_Y = size[1] // 2
 GREEN = (0, 255, 0)
-M=0.5
+WHITE = (255, 255, 255)
+M = 0.5
+
 
 def normal_round(num, n_digits=0):
     if n_digits == 0:
@@ -111,7 +113,9 @@ class ChemicalPlant(Building):
 class Item:
     def __init__(self, name, n, components=None, n_com=None, img_name=None):
         self.name = name
+        self.n = n
         self.components = components
+        self.n_com = n_com
         if img_name:
             self.img_name = "Icons/" + img_name
         else:
@@ -142,8 +146,12 @@ class Graph:
 
     }
 
-    def __init__(self, objective):
+    def __init__(self, objective, quantity):
         self.objective = objective
+        self.paths, self.layers, self.heights = self.get_paths()
+        self.vertex = [key for key in self.layers]
+        self.quantity = quantity
+        self.get_numbers()
 
     def find_edges(self, prev_name=None, prev_path=None, counts=None):
         if prev_path is None:
@@ -159,7 +167,7 @@ class Graph:
 
         if Graph.ITEMS[self.objective].components:
             for n_comp, comp in enumerate(Graph.ITEMS[self.objective].components):
-                prev_path = Graph(comp).find_edges(name_ind, prev_path, counts)
+                prev_path = Graph(comp, 1).find_edges(name_ind, prev_path, counts)
         return prev_path
 
     def get_paths(self):
@@ -167,7 +175,6 @@ class Graph:
         path_nums = {"None": -1}
         self.edges = self.find_edges()
 
-        print(self.edges)
         for edge in self.edges:
             path_nums[str(edge[1])] = path_nums[str(edge[0])] + 1
 
@@ -177,6 +184,7 @@ class Graph:
 
                 else:
                     path[str(edge[0])].append(edge[1])
+        print(path)
         layers = {}
         heights = {}
         for key, val in path_nums.items():
@@ -185,7 +193,6 @@ class Graph:
             else:
                 layers[val].append(key)
         for lay in layers:
-            print(len(layers[lay]))
             for i, item in enumerate(layers[lay]):
                 if len(layers[lay]) % 2 == 0:
 
@@ -195,29 +202,38 @@ class Graph:
                         heights[item] = i - len(layers[lay]) // 2
                 else:
                     if i - len(layers[lay]) // 2 > 0:
-                        heights[item] = i  - len(layers[lay]) // 2
-                    elif i - len(layers[lay]) // 2 < 0 :
+                        heights[item] = i - len(layers[lay]) // 2
+                    elif i - len(layers[lay]) // 2 < 0:
                         heights[item] = i - len(layers[lay]) // 2
                     else:
                         heights[item] = 0
 
-
-        print(len(layers), len(heights))
         return path, layers, heights
+
+    def get_numbers(self):
+        per_min = {self.objective + "_0": self.quantity}
+        print(per_min)
+
+        for edge in self.edges[1:]:
+            item = "_".join(edge[0].split("_")[:-1])
+            component = "_".join(edge[1].split("_")[:-1])
+            print(item)
+            component_ind = Graph.ITEMS[item].components.index(component)
+            per_min[edge[1]] = per_min[edge[0]] / Graph.ITEMS[item].n * Graph.ITEMS[item].n_com[component_ind]
+
+        self.per_min = per_min
 
     def draw(self):
         global OFFSET_X
         global OFFSET_Y
-        paths, layers, heights = self.get_paths()
         paths_num = {}
         ANGLE = 45
         LEN = 500
         LEN_DECAY_MULT = 0.9
         positions = {}
-        print(paths)
-        print(len(heights))
-        for p, key in enumerate(paths.keys()):
-            lines = len(paths[key])
+
+        for p, key in enumerate(self.paths.keys()):
+            lines = len(self.paths[key])
             if lines % 2 == 0:
                 angles = [ANGLE // (i + 1) for i in range(lines // 2)]
                 angles += [-an for an in angles]
@@ -231,14 +247,14 @@ class Graph:
 
             if p == 0:
                 positions[key] = (0, 0)
-            for i, comp in enumerate(paths[key]):
+            for i, comp in enumerate(self.paths[key]):
                 if comp not in positions:
-                    for lay in layers:
-                        if comp in layers[lay]:
+                    for lay in self.layers:
+                        if comp in self.layers[lay]:
                             x_dif = lay
 
                     positions[comp] = (LEN * -x_dif,
-                                       heights[comp]*LEN)
+                                       self.heights[comp] * LEN)
 
         pygame.init()
         screen = pygame.display.set_mode(size)
@@ -267,14 +283,12 @@ class Graph:
                 OFFSET_Y += diff[1]
                 first_drag = False
                 pos_last = pos
-
+            for va, vb in self.edges[1:]:
+                print(va, vb)
+                pygame.draw.line(screen, ORANGE,
+                                 (M * positions[va][0] + OFFSET_X, M * positions[va][1] + OFFSET_Y),
+                                 (M * positions[vb][0] + OFFSET_X, M * positions[vb][1] + OFFSET_Y))
             for p, key in enumerate(positions):
-                try:
-                    for comp in paths[key]:
-                        pygame.draw.line(screen, ORANGE, (M*positions[key][0] + OFFSET_X, M*positions[key][1] + OFFSET_Y),
-                                         (M*positions[comp][0] + OFFSET_X, M*positions[comp][1] + OFFSET_Y))
-                except:
-                    pass
 
                 name_array = key.split("_")[:-1]
                 name_clean = "_".join(name_array)
@@ -282,21 +296,36 @@ class Graph:
 
                     if p == 0:
 
-                        pygame.draw.circle(screen, GREEN, (M*positions[key][0] + OFFSET_X, positions[key][1] + OFFSET_Y),
+                        pygame.draw.circle(screen, GREEN,
+                                           (M * positions[key][0] + OFFSET_X, positions[key][1] + OFFSET_Y),
                                            10)
                     else:
-                        pygame.draw.circle(screen, BLUE, (M*positions[key][0] + OFFSET_X, positions[key][1] + OFFSET_Y),
+                        pygame.draw.circle(screen, BLUE,
+                                           (M * positions[key][0] + OFFSET_X, positions[key][1] + OFFSET_Y),
                                            10)
 
                     pygame.display.set_caption('image')
                 else:
+                    print(key)
                     imp = pygame.image.load(Graph.ITEMS[name_clean].img_name).convert_alpha()
+                    imp_rect = imp.get_rect()
+                    imp_rect.center = ((M * positions[key][0] + OFFSET_X),
+                                       (M * positions[key][1] + OFFSET_Y))
+                    screen.blit(imp, imp_rect)
+                    font = pygame.font.Font('freesansbold.ttf', 16)
+                    text = font.render(str(self.per_min[key]), True, WHITE)
 
-                    screen.blit(imp, ((M*positions[key][0] + OFFSET_X - imp.get_width() // 2),
-                                      (M*positions[key][1] + OFFSET_Y - imp.get_height() // 2)))
+                    textRect = text.get_rect()
+
+                    # set the center of the rectangular object.
+                    textRect.midtop = ((M * positions[key][0] + OFFSET_X),
+                                       (M * positions[key][1] + OFFSET_Y + imp.get_height() // 2))
+
+                    screen.blit(text, textRect)
+
             pygame.display.flip()
         pygame.quit()
 
 
-line = Graph("mining_machine")
+line = Graph("mining_machine", 120)
 line.draw()
