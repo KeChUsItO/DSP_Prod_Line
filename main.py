@@ -9,6 +9,7 @@ size = 1920, 1080
 OFFSET_X = size[0] // 2
 OFFSET_Y = size[1] // 2
 GREEN = (0, 255, 0)
+GR_BL = (33, 182, 168)
 WHITE = (255, 255, 255)
 M = 0.5
 
@@ -152,6 +153,7 @@ class Graph:
         self.vertex = [key for key in self.layers]
         self.quantity = quantity
         self.get_numbers()
+        self.colour_edges()
 
     def find_edges(self, prev_name=None, prev_path=None, counts=None):
         if prev_path is None:
@@ -223,6 +225,22 @@ class Graph:
 
         self.per_min = per_min
 
+    def colour_edges(self):
+        edge_colours = {}
+        for key, value in self.per_min.items():
+            for edge in self.edges:
+                if edge[1] == key:
+                    if value <= 6*60:
+                        edge_colours[edge] = ORANGE
+                    elif 6*60 < value <= 12*60:
+                        edge_colours[edge] = GR_BL
+                    else:
+                        edge_colours[edge] = BLUE
+        print(edge_colours)
+        self.edge_colours = edge_colours
+
+
+
     def draw(self):
         global OFFSET_X
         global OFFSET_Y
@@ -283,9 +301,10 @@ class Graph:
                 OFFSET_Y += diff[1]
                 first_drag = False
                 pos_last = pos
-            for va, vb in self.edges[1:]:
-                print(va, vb)
-                pygame.draw.line(screen, ORANGE,
+            for edge  in self.edges[1:]:
+                va, vb = edge
+                color = self.edge_colours[edge]
+                pygame.draw.line(screen, color,
                                  (M * positions[va][0] + OFFSET_X, M * positions[va][1] + OFFSET_Y),
                                  (M * positions[vb][0] + OFFSET_X, M * positions[vb][1] + OFFSET_Y))
             for p, key in enumerate(positions):
@@ -306,7 +325,6 @@ class Graph:
 
                     pygame.display.set_caption('image')
                 else:
-                    print(key)
                     imp = pygame.image.load(Graph.ITEMS[name_clean].img_name).convert_alpha()
                     imp_rect = imp.get_rect()
                     imp_rect.center = ((M * positions[key][0] + OFFSET_X),
@@ -327,5 +345,5 @@ class Graph:
         pygame.quit()
 
 
-line = Graph("mining_machine", 120)
+line = Graph("mining_machine", 360)
 line.draw()
