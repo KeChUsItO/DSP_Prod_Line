@@ -345,5 +345,5 @@ class Graph:
         pygame.quit()
 
 
-line = Graph("mining_machine", 360)
+line = Graph("tesla_tower", 360)
 line.draw()
