@@ -12,6 +12,9 @@ GREEN = (0, 255, 0)
 GR_BL = (33, 182, 168)
 WHITE = (255, 255, 255)
 M = 0.5
+SCROLL_MULT = 0.1
+MIN_SCROLL_MULT = 0.01
+MAX_SCROLL_MULT = 0.1
 
 
 def normal_round(num, n_digits=0):
@@ -112,11 +115,13 @@ class ChemicalPlant(Building):
 
 
 class Item:
-    def __init__(self, name, n, components=None, n_com=None, img_name=None):
+    def __init__(self, name, n, time=None, components=None, n_com=None, img_name=None, made_in=None):
         self.name = name
         self.n = n
+        self.time = time
         self.components = components
         self.n_com = n_com
+        self.made_in = made_in
         if img_name:
             self.img_name = "Icons/" + img_name
         else:
@@ -124,26 +129,28 @@ class Item:
 
 
 class Graph:
+    MAX_ASSEMBLER_TIER = 2
     ITEMS = {
-        "gear": Item("gear", 1, ["iron_ingot"], [1], "Icon_Gear.png"),
-        "iron_ingot": Item("iron_ingot", 1, ["iron_ore"], [1], "Icon_Iron_Ingot.png"),
-        "iron_ore": Item("iron_ore", 1, None, None, "Icon_Iron_Ore.png"),
-        "copper_ore": Item("copper_ore", 1, None, None, "Icon_Copper_Ore.png"),
-        "magnet": Item("magnet", 1, ["iron_ore"], [1], "Icon_Magnet.png"),
-        "copper_ingot": Item("copper_ingot", 1, ["copper_ore"], [1], "Icon_Copper_Ingot.png"),
-        "magnetic_coil": Item("magnetic_coil", 2, ["magnet", "copper_ingot"], [2, 1], "Icon_Magnetic_Coil.png"),
-        "electric_motor": Item("electric_motor", 1, ["iron_ingot", "gear", "magnetic_coil"], [2, 1, 1],
-                               "Icon_Electric_Motor.png"),
-        "wind_turbine": Item("wind_turbine", 1, ["iron_ingot", "gear", "magnetic_coil"], [6, 1, 3],
-                             "Icon_Wind_Turbine.png"),
-        "tesla_tower": Item("tesla_tower", 1, ["iron_ingot", "magnetic_coil"], [1, 1],
-                            "Icon_Tesla_Tower.png"),
-        "circuit_board": Item("circuit_board", 1, ["iron_ingot", "copper_ingot"],
+        "gear": Item("gear", 1, 1, ["iron_ingot"], [1], "Icon_Gear.png", "assembler"),
+        "iron_ingot": Item("iron_ingot", 1, 1, ["iron_ore"], [1], "Icon_Iron_Ingot.png", "smelting_facility"),
+        "iron_ore": Item("iron_ore", 1, 2, None, None, "Icon_Iron_Ore.png"),
+        "copper_ore": Item("copper_ore", 2, 2, None, None, "Icon_Copper_Ore.png"),
+        "magnet": Item("magnet", 1, 1.5, ["iron_ore"], [1], "Icon_Magnet.png", "smelting_facility"),
+        "copper_ingot": Item("copper_ingot", 1, 1, ["copper_ore"], [1], "Icon_Copper_Ingot.png", "smelting_facility"),
+        "magnetic_coil": Item("magnetic_coil", 2, 1, ["magnet", "copper_ingot"], [2, 1], "Icon_Magnetic_Coil.png",
+                              "assembler"),
+        "electric_motor": Item("electric_motor", 1, 2, ["iron_ingot", "gear", "magnetic_coil"], [2, 1, 1],
+                               "Icon_Electric_Motor.png", "assembler"),
+        "wind_turbine": Item("wind_turbine", 1, 4, ["iron_ingot", "gear", "magnetic_coil"], [6, 1, 3],
+                             "Icon_Wind_Turbine.png", "assembler"),
+        "tesla_tower": Item("tesla_tower", 1, 1, ["iron_ingot", "magnetic_coil"], [1, 1],
+                            "Icon_Tesla_Tower.png", "assembler"),
+        "circuit_board": Item("circuit_board", 2, 1, ["iron_ingot", "copper_ingot"],
                               [2, 1],
-                              "Icon_Circuit_Board.png"),
-        "mining_machine": Item("mining_machine", 1, ["iron_ingot", "circuit_board", "magnetic_coil", "gear"],
+                              "Icon_Circuit_Board.png", "assembler"),
+        "mining_machine": Item("mining_machine", 1, 3, ["iron_ingot", "circuit_board", "magnetic_coil", "gear"],
                                [4, 2, 2, 2],
-                               "Icon_Mining_Machine.png")
+                               "Icon_Mining_Machine.png", "assembler")
 
     }
 
@@ -154,6 +161,7 @@ class Graph:
         self.quantity = quantity
         self.get_numbers()
         self.colour_edges()
+        self.get_factories()
 
     def find_edges(self, prev_name=None, prev_path=None, counts=None):
         if prev_path is None:
@@ -186,7 +194,6 @@ class Graph:
 
                 else:
                     path[str(edge[0])].append(edge[1])
-        print(path)
         layers = {}
         heights = {}
         for key, val in path_nums.items():
@@ -214,12 +221,10 @@ class Graph:
 
     def get_numbers(self):
         per_min = {self.objective + "_0": self.quantity}
-        print(per_min)
 
         for edge in self.edges[1:]:
             item = "_".join(edge[0].split("_")[:-1])
             component = "_".join(edge[1].split("_")[:-1])
-            print(item)
             component_ind = Graph.ITEMS[item].components.index(component)
             per_min[edge[1]] = per_min[edge[0]] / Graph.ITEMS[item].n * Graph.ITEMS[item].n_com[component_ind]
 
@@ -230,20 +235,42 @@ class Graph:
         for key, value in self.per_min.items():
             for edge in self.edges:
                 if edge[1] == key:
-                    if value <= 6*60:
+                    if value <= 6 * 60:
                         edge_colours[edge] = ORANGE
-                    elif 6*60 < value <= 12*60:
+                    elif 6 * 60 < value <= 12 * 60:
                         edge_colours[edge] = GR_BL
                     else:
                         edge_colours[edge] = BLUE
-        print(edge_colours)
         self.edge_colours = edge_colours
 
+    def get_factories(self):
+        for key, val in self.per_min.items():
+            key_clean = "_".join(key.split("_")[:-1])
+            if Graph.ITEMS[key_clean].made_in == "assembler":
+                prod_1 = 60 / Graph.ITEMS[key_clean].time * Graph.ITEMS[key_clean].n
+                prods = [prod_1*0.75,prod_1,prod_1*1.5]
+                if Graph.MAX_ASSEMBLER_TIER == 1:
+                    num_ass = val / prods[0]
+                    print("Assemblers Mk.I",num_ass)
+                elif Graph.MAX_ASSEMBLER_TIER == 2:
+                    num_ass = val / prods[1]
+                    if num_ass % 1 != 0:
 
+                        if val/num_ass * (num_ass-int(num_ass)) <= prods[0]:
+                            print("MK.II", val, key, int(num_ass))
+                            print("MK.I", key, 1)
+                        else :
+                            print("MK.II", val, key, int(num_ass)+1)
 
+                    else:
+
+                        print("MK.II",key,num_ass)
     def draw(self):
         global OFFSET_X
         global OFFSET_Y
+        global M
+        global SCROLL_MULT
+        global MIN_SCROLL_MULT
         paths_num = {}
         ANGLE = 45
         LEN = 500
@@ -291,6 +318,13 @@ class Graph:
                     first_drag = True
                 elif event.type == pygame.MOUSEBUTTONUP:
                     dragging = False
+                elif event.type == pygame.MOUSEBUTTONUP:
+                    dragging = False
+                if event.type == pygame.MOUSEWHEEL:
+
+                    M += event.y * SCROLL_MULT
+                    if M <= 0.01:
+                        M = 0.01
 
             if dragging:
                 pos = pygame.mouse.get_pos()
@@ -301,7 +335,7 @@ class Graph:
                 OFFSET_Y += diff[1]
                 first_drag = False
                 pos_last = pos
-            for edge  in self.edges[1:]:
+            for edge in self.edges[1:]:
                 va, vb = edge
                 color = self.edge_colours[edge]
                 pygame.draw.line(screen, color,
@@ -326,15 +360,17 @@ class Graph:
                     pygame.display.set_caption('image')
                 else:
                     imp = pygame.image.load(Graph.ITEMS[name_clean].img_name).convert_alpha()
+                    imp = pygame.transform.scale(imp, (M * 2 * imp.get_width(), M * 2 * imp.get_height()))
                     imp_rect = imp.get_rect()
                     imp_rect.center = ((M * positions[key][0] + OFFSET_X),
                                        (M * positions[key][1] + OFFSET_Y))
                     screen.blit(imp, imp_rect)
-                    font = pygame.font.Font('freesansbold.ttf', 16)
+                    font = pygame.font.Font('freesansbold.ttf', 20)
                     text = font.render(str(self.per_min[key]), True, WHITE)
+                    text = pygame.transform.scale(text, (M * 2 * text.get_width(), M * 2 * text.get_height()))
 
                     textRect = text.get_rect()
-
+                    pygame.transform.scale(text, (M * text.get_width(), M * text.get_height()))
                     # set the center of the rectangular object.
                     textRect.midtop = ((M * positions[key][0] + OFFSET_X),
                                        (M * positions[key][1] + OFFSET_Y + imp.get_height() // 2))
@@ -345,5 +381,5 @@ class Graph:
         pygame.quit()
 
 
-line = Graph("iron_ingot", 360)
+line = Graph("mining_machine", 90)
 line.draw()
