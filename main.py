@@ -129,12 +129,13 @@ class Item:
 
 
 class Graph:
-    MAX_ASSEMBLER_TIER = 2
+    MAX_ASSEMBLER_TIER = 3
+    MAX_SMELTING_TIER = 2
     ITEMS = {
         "gear": Item("gear", 1, 1, ["iron_ingot"], [1], "Icon_Gear.png", "assembler"),
         "iron_ingot": Item("iron_ingot", 1, 1, ["iron_ore"], [1], "Icon_Iron_Ingot.png", "smelting_facility"),
         "iron_ore": Item("iron_ore", 1, 2, None, None, "Icon_Iron_Ore.png"),
-        "copper_ore": Item("copper_ore", 2, 2, None, None, "Icon_Copper_Ore.png"),
+        "copper_ore": Item("copper_ore", 1, 2, None, None, "Icon_Copper_Ore.png"),
         "magnet": Item("magnet", 1, 1.5, ["iron_ore"], [1], "Icon_Magnet.png", "smelting_facility"),
         "copper_ingot": Item("copper_ingot", 1, 1, ["copper_ore"], [1], "Icon_Copper_Ingot.png", "smelting_facility"),
         "magnetic_coil": Item("magnetic_coil", 2, 1, ["magnet", "copper_ingot"], [2, 1], "Icon_Magnetic_Coil.png",
@@ -244,27 +245,70 @@ class Graph:
         self.edge_colours = edge_colours
 
     def get_factories(self):
+        print("-----------------")
         for key, val in self.per_min.items():
+            factories = None
             key_clean = "_".join(key.split("_")[:-1])
             if Graph.ITEMS[key_clean].made_in == "assembler":
                 prod_1 = 60 / Graph.ITEMS[key_clean].time * Graph.ITEMS[key_clean].n
-                prods = [prod_1*0.75,prod_1,prod_1*1.5]
+                prods = [prod_1 * 0.75, prod_1, prod_1 * 1.5]
                 if Graph.MAX_ASSEMBLER_TIER == 1:
                     num_ass = val / prods[0]
-                    print("Assemblers Mk.I",num_ass)
+                    if num_ass % 1 != 0:
+                        factories = ["assembler", [int(num_ass) + 1, 0, 0]]
+                    else:
+                        factories = ["assembler", [int(num_ass) , 0, 0]]
                 elif Graph.MAX_ASSEMBLER_TIER == 2:
                     num_ass = val / prods[1]
                     if num_ass % 1 != 0:
 
-                        if val/num_ass * (num_ass-int(num_ass)) <= prods[0]:
-                            print("MK.II", val, key, int(num_ass))
-                            print("MK.I", key, 1)
-                        else :
-                            print("MK.II", val, key, int(num_ass)+1)
+                        if val / num_ass * (num_ass - int(num_ass)) <= prods[0]:
+                            factories = ["assembler", [1, int(num_ass), 0]]
+                        else:
+                            factories = ["assembler", [0, int(num_ass) + 1, 0]]
 
                     else:
+                        factories = ["assembler", [0, int(num_ass), 0]]
 
-                        print("MK.II",key,num_ass)
+                elif Graph.MAX_ASSEMBLER_TIER == 3:
+                    num_ass = val / prods[2]
+                    if num_ass % 1 != 0:
+                        extra = val / num_ass * (num_ass - int(num_ass))
+                        if extra <= prods[0]:
+                            factories = ["assembler", [1, 0, int(num_ass)]]
+                        elif prods[0] < extra <= prods[1]:
+                            factories = ["assembler", [0, 1, int(num_ass)]]
+                        else:
+                            factories = ["assembler", [0, 0, int(num_ass) + 1]]
+                        print("EXTRA", extra)
+
+                    else:
+                        factories = ["assembler", [0, 0, int(num_ass)]]
+
+                print(key, val, factories)
+
+            if Graph.ITEMS[key_clean].made_in == "smelting_facility":
+                prod_1 = 60 / Graph.ITEMS[key_clean].time * Graph.ITEMS[key_clean].n
+                prods = [prod_1, prod_1 * 2]
+                if Graph.MAX_SMELTING_TIER == 1:
+                    num_ass = val / prods[0]
+                    if num_ass % 1 != 0:
+                        factories = ["smelting_facility", [int(num_ass) + 1, 0, 0]]
+                    else:
+                        factories = ["smelting_facility", [int(num_ass) , 0, 0]]
+                elif Graph.MAX_SMELTING_TIER == 2:
+                    num_ass = val / prods[1]
+                    if num_ass % 1 != 0:
+
+                        if val / num_ass * (num_ass - int(num_ass)) <= prods[0]:
+                            factories = ["smelting_facility", [1, int(num_ass), 0]]
+                        else:
+                            factories = ["smelting_facility", [0, int(num_ass) + 1, 0]]
+
+                    else:
+                        factories = ["smelting_facility", [0, int(num_ass), 0]]
+                print(key, val, factories)
+
     def draw(self):
         global OFFSET_X
         global OFFSET_Y
