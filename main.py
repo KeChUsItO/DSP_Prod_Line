@@ -128,30 +128,85 @@ class Item:
             self.img_name = None
 
 
+selection = "steel"
+
+
 class Graph:
     MAX_ASSEMBLER_TIER = 3
     MAX_SMELTING_TIER = 2
+    MAX_MINING_TIER = 2
+    factory_images = {"assembler": ["Icons/Icon_Assembling_Machine_Mk.I.png", "Icons/Icon_Assembling_Machine_Mk.II.png",
+                                    "Icons/Icon_Assembling_Machine_Mk.III.png"],
+                      "smelting_facility": ["Icons/Icon_Arc_Smelter.png", "Icons/Icon_Plane_Smelter.png"],
+                      "mining_machine": ["Icons/Icon_Mining_Machine.png", "Icons/Icon_Advanced_Mining_Machine.png"],
+                      "research_facility": ["Icons/Icon_Matrix_Lab.png"]}
     ITEMS = {
         "gear": Item("gear", 1, 1, ["iron_ingot"], [1], "Icon_Gear.png", "assembler"),
         "iron_ingot": Item("iron_ingot", 1, 1, ["iron_ore"], [1], "Icon_Iron_Ingot.png", "smelting_facility"),
-        "iron_ore": Item("iron_ore", 1, 2, None, None, "Icon_Iron_Ore.png"),
-        "copper_ore": Item("copper_ore", 1, 2, None, None, "Icon_Copper_Ore.png"),
+        "glass": Item("glass", 1, 2, ["stone"], [2], "Icon_Glass.png", "smelting_facility"),
+        "stone_brick": Item("stone_brick", 1, 1, ["stone"], [1], "Icon_Stone_Brick.png", "smelting_facility"),
+        "stone": Item("stone", 1, 2, ["stone_ore_vein"], [1], "Icon_Stone.png", "mining_machine"),
+        "iron_ore": Item("iron_ore", 1, 2, ["iron_ore_vein"], [1], "Icon_Iron_Ore.png", "mining_machine"),
+        "stone_ore_vein": Item("stone_ore_vein", 0, 0, None, None, "Icon_Stone_Ore_Vein.png"),
+        "iron_ore_vein": Item("iron_ore_vein", 0, 0, None, None, "Icon_Iron_Ore_Vein.png"),
+        "copper_ore_vein": Item("copper_ore_vein", 0, 0, None, None, "Icon_Copper_Vein.png"),
+        "copper_ore": Item("copper_ore", 1, 2, ["copper_ore_vein"], [1], "Icon_Copper_Ore.png", "mining_machine"),
         "magnet": Item("magnet", 1, 1.5, ["iron_ore"], [1], "Icon_Magnet.png", "smelting_facility"),
         "copper_ingot": Item("copper_ingot", 1, 1, ["copper_ore"], [1], "Icon_Copper_Ingot.png", "smelting_facility"),
         "magnetic_coil": Item("magnetic_coil", 2, 1, ["magnet", "copper_ingot"], [2, 1], "Icon_Magnetic_Coil.png",
                               "assembler"),
+        "conveyor_belt_mk.I": Item("conveyor_belt_mk.I", 3, 1, ["iron_ingot", "circuit_board"], [1, 1],
+                                   "Icon_Sorter_Mk.I.png",
+                                   "assembler"),
+        "sorter_mk.I": Item("sorter_mk.I", 1, 1, ["iron_ingot", "gear"], [2, 1],
+                            "Icon_Conveyor_Belt_Mk.I.png",
+                            "assembler"),
+        "storage.I": Item("storage.I", 1, 2, ["iron_ingot", "stone_brick"], [4, 4],
+                          "Icon_Storage_Mk.I.png",
+                          "assembler"),
         "electric_motor": Item("electric_motor", 1, 2, ["iron_ingot", "gear", "magnetic_coil"], [2, 1, 1],
                                "Icon_Electric_Motor.png", "assembler"),
         "wind_turbine": Item("wind_turbine", 1, 4, ["iron_ingot", "gear", "magnetic_coil"], [6, 1, 3],
                              "Icon_Wind_Turbine.png", "assembler"),
+        "assembling_machine_mk.I": Item("assembling_machine_mk.I", 1, 2, ["iron_ingot", "gear", "circuit_board"],
+                                        [4, 8, 4],
+                                        "Icon_Assembling_Machine_Mk.I.png", "assembler"),
         "tesla_tower": Item("tesla_tower", 1, 1, ["iron_ingot", "magnetic_coil"], [1, 1],
                             "Icon_Tesla_Tower.png", "assembler"),
         "circuit_board": Item("circuit_board", 2, 1, ["iron_ingot", "copper_ingot"],
                               [2, 1],
                               "Icon_Circuit_Board.png", "assembler"),
+        "electromagnetic_matrix": Item("electromagnetic_matrix", 1, 3, ["magnetic_coil", "circuit_board"],
+                                       [1, 1],
+                                       "Icon_Electromagnetic_Matrix.png", "research_facility"),
         "mining_machine": Item("mining_machine", 1, 3, ["iron_ingot", "circuit_board", "magnetic_coil", "gear"],
                                [4, 2, 2, 2],
-                               "Icon_Mining_Machine.png", "assembler")
+                               "Icon_Mining_Machine.png", "assembler"),
+        "arc_smelter": Item("arc_smelter", 1, 3, ["iron_ingot", "stone_brick", "circuit_board", "magnetic_coil"],
+                            [4, 2, 4, 2],
+                            "Icon_Arc_Smelter.png", "assembler"),
+        "matrix_lab": Item("matrix_lab", 1, 3, ["iron_ingot", "glass", "circuit_board", "magnetic_coil"],
+                           [8, 4, 4, 4],
+                           "Icon_Matrix_Lab.png", "assembler"),
+        "storage_tank": Item("storage_tank", 1, 2, ["iron_ingot", "stone_brick", "glass"],
+                             [8, 4, 4],
+                             "Icon_Storage_Tank.png", "assembler"),
+        "water_pump": Item("water_pump", 1, 4, ["iron_ingot", "stone_brick", "electric_motor", "circuit_board"],
+                           [8, 4, 4, 2], "Icon_Water_Pump.png", "assembler"),
+        "prism": Item("prism", 2, 2, ["glass"],
+                      [3], "Icon_Prism.png", "assembler"),
+        "plasma_exciter": Item("plasma_exciter", 1, 2, ["magnetic_coil", "prism"],
+                               [4, 2], "Icon_Plasma_Exciter.png", "assembler"),
+        "wireless_power_tower": Item("wireless_power_tower", 1, 3, ["tesla_tower", "plasma_exciter"],
+                                     [1, 3], "Icon_Wireless_Power_Tower.png", "assembler"),
+        "splitter": Item("splitter", 1, 2, ["iron_ingot", "gear","circuit_board"],
+                                     [3, 2, 1], "Icon_Splitter.png", "assembler"),
+        "sorter_mk.II": Item("sorter_mk.II", 2, 1, ["sorter_mk.I", "electric_motor"],
+                                     [2,1], "Icon_Sorter_Mk.II.png", "assembler"),
+        "traffic_monitor": Item("traffic_monitor", 1, 2, ["iron_ingot", "gear", "glass", "circuit_board"],
+                           [3, 2, 1, 2], "Icon_Traffic_Monitor.png", "assembler"),
+        "steel": Item("steel", 1, 3, ["iron_ingot"],
+                      [3], "Icon_Steel.png", "smelting_facility"),
 
     }
 
@@ -245,8 +300,10 @@ class Graph:
         self.edge_colours = edge_colours
 
     def get_factories(self):
+        self.factories = {}
         print("-----------------")
         for key, val in self.per_min.items():
+
             factories = None
             key_clean = "_".join(key.split("_")[:-1])
             if Graph.ITEMS[key_clean].made_in == "assembler":
@@ -257,7 +314,7 @@ class Graph:
                     if num_ass % 1 != 0:
                         factories = ["assembler", [int(num_ass) + 1, 0, 0]]
                     else:
-                        factories = ["assembler", [int(num_ass) , 0, 0]]
+                        factories = ["assembler", [int(num_ass), 0, 0]]
                 elif Graph.MAX_ASSEMBLER_TIER == 2:
                     num_ass = val / prods[1]
                     if num_ass % 1 != 0:
@@ -295,7 +352,7 @@ class Graph:
                     if num_ass % 1 != 0:
                         factories = ["smelting_facility", [int(num_ass) + 1, 0, 0]]
                     else:
-                        factories = ["smelting_facility", [int(num_ass) , 0, 0]]
+                        factories = ["smelting_facility", [int(num_ass), 0, 0]]
                 elif Graph.MAX_SMELTING_TIER == 2:
                     num_ass = val / prods[1]
                     if num_ass % 1 != 0:
@@ -308,6 +365,38 @@ class Graph:
                     else:
                         factories = ["smelting_facility", [0, int(num_ass), 0]]
                 print(key, val, factories)
+
+            if Graph.ITEMS[key_clean].made_in == "mining_machine":
+                print(key_clean)
+                print(Graph.ITEMS[key_clean].n)
+                prod_1 = 60 / Graph.ITEMS[key_clean].time * Graph.ITEMS[key_clean].n
+                prods = [prod_1, prod_1 * 2]
+                if Graph.MAX_MINING_TIER == 1:
+                    num_ass = val / prods[0]
+                    if num_ass % 1 != 0:
+                        factories = ["mining_machine", [int(num_ass) + 1, 0]]
+                    else:
+                        factories = ["mining_machine", [int(num_ass), 0]]
+                elif Graph.MAX_MINING_TIER == 2:
+                    num_ass = val / prods[1]
+                    if num_ass % 1 != 0:
+                        factories = ["mining_machine", [0, int(num_ass) + 1]]
+                    else:
+                        factories = ["mining_machine", [0, int(num_ass)]]
+                print(key, val, factories)
+            if Graph.ITEMS[key_clean].made_in == "research_facility":
+                print(key_clean)
+                print(Graph.ITEMS[key_clean].n)
+                prod_1 = 60 / Graph.ITEMS[key_clean].time * Graph.ITEMS[key_clean].n
+                prods = [prod_1]
+                num_ass = val / prods[0]
+                if num_ass % 1 != 0:
+                    factories = ["research_facility", [int(num_ass) + 1]]
+                else:
+                    factories = ["research_facility", [int(num_ass)]]
+
+                print(key, val, factories)
+            self.factories[key] = factories
 
     def draw(self):
         global OFFSET_X
@@ -328,7 +417,7 @@ class Graph:
                 angles += [-an for an in angles]
 
             else:
-                angles = [ANGLE // (i + 1) for i in range((lines) // 2)]
+                angles = [ANGLE // (i + 1) for i in range(lines // 2)]
                 angles += [-an for an in angles]
                 angles += [0]
             angles = sorted(angles)
@@ -420,10 +509,39 @@ class Graph:
                                        (M * positions[key][1] + OFFSET_Y + imp.get_height() // 2))
 
                     screen.blit(text, textRect)
+                    height = 0
+                    if self.factories[key]:
+                        for i, fact in enumerate(self.factories[key][1]):
+
+                            if fact != 0:
+                                text = font.render(str(fact), True, WHITE)
+                                text = pygame.transform.scale(text,
+                                                              (M * 2 * text.get_width(), M * 2 * text.get_height()))
+
+                                textRect = text.get_rect()
+                                pygame.transform.scale(text, (M * text.get_width(), M * text.get_height()))
+                                # set the center of the rectangular object.
+                                textRect.midbottom = ((M * positions[key][0] + OFFSET_X + text.get_width() // 1.5),
+                                                      (M * positions[key][
+                                                          1] + OFFSET_Y - imp.get_height() // 2 - height * text.get_height()))
+
+                                screen.blit(text, textRect)
+                                print(Graph.factory_images[self.factories[key][0]][i])
+                                imp_fact = pygame.image.load(
+                                    Graph.factory_images[self.factories[key][0]][i]).convert_alpha()
+                                imp_fact = pygame.transform.scale(imp_fact,
+                                                                  (text.get_height(), text.get_height()))
+                                imp_fact_rect = imp_fact.get_rect()
+                                imp_fact_rect.midbottom = (
+                                    (M * positions[key][0] + OFFSET_X - imp_fact.get_width() // 1.5),
+                                    (M * positions[key][
+                                        1] + OFFSET_Y - imp.get_height() // 2 - height * text.get_height()))
+                                screen.blit(imp_fact, imp_fact_rect)
+                                height += 1
 
             pygame.display.flip()
         pygame.quit()
 
 
-line = Graph("mining_machine", 90)
+line = Graph(selection, 120)
 line.draw()
