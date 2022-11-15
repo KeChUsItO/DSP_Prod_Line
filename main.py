@@ -526,7 +526,6 @@ class Graph:
                                                           1] + OFFSET_Y - imp.get_height() // 2 - height * text.get_height()))
 
                                 screen.blit(text, textRect)
-                                print(Graph.factory_images[self.factories[key][0]][i])
                                 imp_fact = pygame.image.load(
                                     Graph.factory_images[self.factories[key][0]][i]).convert_alpha()
                                 imp_fact = pygame.transform.scale(imp_fact,
