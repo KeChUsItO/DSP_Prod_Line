@@ -1,5 +1,5 @@
 import pygame
-import math
+import time
 
 BLUE = (0, 0, 255)
 BLACK = (0, 0, 0)
@@ -128,7 +128,7 @@ class Item:
             self.img_name = None
 
 
-selection = "steel"
+selection = "silicon_ore"
 
 
 class Graph:
@@ -149,6 +149,7 @@ class Graph:
         "iron_ore": Item("iron_ore", 1, 2, ["iron_ore_vein"], [1], "Icon_Iron_Ore.png", "mining_machine"),
         "stone_ore_vein": Item("stone_ore_vein", 0, 0, None, None, "Icon_Stone_Ore_Vein.png"),
         "iron_ore_vein": Item("iron_ore_vein", 0, 0, None, None, "Icon_Iron_Ore_Vein.png"),
+        "silicon_ore_vein": Item("silicon_ore_vein", 0, 0, None, None, "Icon_Silicon_Ore_Vein.png"),
         "copper_ore_vein": Item("copper_ore_vein", 0, 0, None, None, "Icon_Copper_Vein.png"),
         "copper_ore": Item("copper_ore", 1, 2, ["copper_ore_vein"], [1], "Icon_Copper_Ore.png", "mining_machine"),
         "magnet": Item("magnet", 1, 1.5, ["iron_ore"], [1], "Icon_Magnet.png", "smelting_facility"),
@@ -199,25 +200,35 @@ class Graph:
                                [4, 2], "Icon_Plasma_Exciter.png", "assembler"),
         "wireless_power_tower": Item("wireless_power_tower", 1, 3, ["tesla_tower", "plasma_exciter"],
                                      [1, 3], "Icon_Wireless_Power_Tower.png", "assembler"),
-        "splitter": Item("splitter", 1, 2, ["iron_ingot", "gear","circuit_board"],
-                                     [3, 2, 1], "Icon_Splitter.png", "assembler"),
+        "splitter": Item("splitter", 1, 2, ["iron_ingot", "gear", "circuit_board"],
+                         [3, 2, 1], "Icon_Splitter.png", "assembler"),
         "sorter_mk.II": Item("sorter_mk.II", 2, 1, ["sorter_mk.I", "electric_motor"],
-                                     [2,1], "Icon_Sorter_Mk.II.png", "assembler"),
+                             [2, 1], "Icon_Sorter_Mk.II.png", "assembler"),
         "traffic_monitor": Item("traffic_monitor", 1, 2, ["iron_ingot", "gear", "glass", "circuit_board"],
-                           [3, 2, 1, 2], "Icon_Traffic_Monitor.png", "assembler"),
+                                [3, 2, 1, 2], "Icon_Traffic_Monitor.png", "assembler"),
         "steel": Item("steel", 1, 3, ["iron_ingot"],
                       [3], "Icon_Steel.png", "smelting_facility"),
+        "silicon_ore": Item([["silicon_ore"], ["silicon_ore"]], [1, 1], [10, 2], [["stone"], ["silicon_ore_vein"]],
+                            [[10], [1]], "Icon_Silicon_Ore.png", [" smelting_facility", "mining_machine"]),
+        "high-purity_silicon": Item("high-purity_silicon", 1, 2, ["silicon_ore"], [2], "Icon_High-Purity_Silicon.png",
+                                    "smelting_facility"),
 
     }
 
     def __init__(self, objective, quantity):
         self.objective = objective
+        self.quantity = quantity
+
+    def calculate(self):
         self.paths, self.layers, self.heights = self.get_paths()
         self.vertex = [key for key in self.layers]
-        self.quantity = quantity
         self.get_numbers()
         self.colour_edges()
         self.get_factories()
+
+    def calculate_full(self):
+        self.pre_edges = self.find_edges_full()
+        self.find_possibilities(self.pre_edges)
 
     def find_edges(self, prev_name=None, prev_path=None, counts=None):
         if prev_path is None:
@@ -229,12 +240,75 @@ class Graph:
         else:
             counts[Graph.ITEMS[self.objective].name] += 1
         name_ind = Graph.ITEMS[self.objective].name + f"_{counts[Graph.ITEMS[self.objective].name]}"
+
         prev_path.append((prev_name, name_ind))
 
         if Graph.ITEMS[self.objective].components:
             for n_comp, comp in enumerate(Graph.ITEMS[self.objective].components):
                 prev_path = Graph(comp, 1).find_edges(name_ind, prev_path, counts)
         return prev_path
+
+    def find_edges_full(self, prev_path=None, prev_index="", ):
+        if prev_path is None:
+            self.prev_path = ""
+        else:
+            self.prev_path = prev_path
+
+        if Graph.ITEMS[self.objective].components:
+            if type(Graph.ITEMS[self.objective].components[0]) == str:
+                for n_comp, comp in enumerate(Graph.ITEMS[self.objective].components):
+                    print(self.objective, self.prev_path)
+
+                    prev_path = Graph(comp, 1).find_edges_full(self.prev_path + "0")
+
+            else:
+                for splits, components in enumerate(Graph.ITEMS[self.objective].components):
+
+                    for n_comp, comp in enumerate(components):
+                        print(self.objective, self.prev_path)
+                        prev_path = Graph(comp, 1).find_edges_full(self.prev_path + str(splits))
+        else:
+            self.prev_path += "0"
+            print("END", self.prev_path)
+        return self.prev_path
+
+    def find_possibilities(self, pre_edges):
+        possibilities = []
+        qnt = 0
+        variants = {0: []}
+        for pre in pre_edges:
+            print(pre[0].split(","))
+
+    def layer(self, objs):
+        m_arrs=[]
+        for prev in objs:
+            arrs = []
+            for n in prev:
+                n_a=[]
+                for obj in n:
+                    if Graph.ITEMS[obj].components:
+                        if type(Graph.ITEMS[obj].name) == list:
+                            for i, nam in enumerate(Graph.ITEMS[obj].name):
+
+                                arr = []
+                                for j, comp in enumerate(Graph.ITEMS[obj].components[i]):
+                                    arr.append(comp)
+                                arrs.append(arr)
+                        else:
+                            arr = []
+                            for j, comp in enumerate(Graph.ITEMS[obj].components):
+                                arr.append(comp)
+
+                    n_a.append(arr)
+                arrs.append(n_a)
+            m_arrs.append(arrs)
+        return  arrs
+
+    def exec_layers(self, lay):
+        lay = [[lay]]
+        for st in range(10):
+            lay = self.layer(lay)
+            print(lay)
 
     def get_paths(self):
         path = {}
@@ -542,5 +616,6 @@ class Graph:
         pygame.quit()
 
 
+selection = "high-purity_silicon"
 line = Graph(selection, 120)
-line.draw()
+line.exec_layers([line.objective])
