@@ -1,5 +1,22 @@
 import pygame
-import time
+import copy
+import itertools
+import math
+import numpy as np
+import gym
+from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv
+from gym import spaces
+import os
+import warnings
+warnings.filterwarnings('ignore')
+import tensorflow as tf
+os.environ["TF_DEVICE_NAME"] = "/device:GPU:0"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+
+
+
 
 BLUE = (0, 0, 255)
 BLACK = (0, 0, 0)
@@ -17,6 +34,16 @@ MIN_SCROLL_MULT = 0.01
 MAX_SCROLL_MULT = 0.1
 
 
+def flatten_array(arr):
+    flat_list = []
+    for element in arr:
+        if isinstance(element, list):
+            flat_list.extend(flatten_array(element))
+        else:
+            flat_list.append(element)
+    return flat_list
+
+
 def normal_round(num, n_digits=0):
     if n_digits == 0:
         return int(num + 0.5)
@@ -29,99 +56,15 @@ class Game:
     MINING_SPEED = 1
 
 
-class Building():
-    building_count = 0
-
-    def __init__(self, size, idle_consumption, work_consumption):
-        self.size = size
-        self.idle_consumption = idle_consumption
-        self.work_consumption = work_consumption
-
-        Building.add_building()
-
-    @classmethod
-    def add_building(cls):
-        Building.building_count += 1
-
-
-class MiningMachine(Building):
-
-    def __init__(self, veins):
-        super().__init__((3, 3), 24, 420)
-        self.gathering_speed = 30 * veins * Game.MINING_SPEED
-
-
-class WaterPump(Building):
-
-    def __init__(self):
-        super().__init__((3, 3), 12, 300)
-        self.gathering_speed = 50 * Game.MINING_SPEED
-
-
-class OilExtractor(Building):
-
-    def __init__(self, oil_field_speed):
-        super().__init__((3, 3), 24, 840)
-        self.gathering_speed = normal_round(oil_field_speed * Game.MINING_SPEED * 60, 1)
-
-
-class AdvancedMiningMachine(Building):
-
-    def __init__(self, veins):
-        super().__init__((3, 3), 168, 2_940)
-        self.gathering_speed = 30 * veins * Game.MINING_SPEED
-
-
-class ArcSmelter(Building):
-    def __init__(self):
-        super().__init__((3, 3), 12, 360)
-        self.production_speed = 1
-
-
-class PlaneSmelter(Building):
-    def __init__(self):
-        super().__init__((3, 3), 48, 1_440)
-        self.production_speed = 2
-
-
-class AssemblingMachineMK1(Building):
-    def __init__(self):
-        super().__init__((4, 4), 12, 270)
-        self.production_speed = 0.75
-
-
-class AssemblingMachineMK2(Building):
-    def __init__(self):
-        super().__init__((4, 4), 15, 540)
-        self.production_speed = 1
-
-
-class AssemblingMachineMK3(Building):
-    def __init__(self):
-        super().__init__((4, 4), 18, 1_080)
-        self.production_speed = 1.5
-
-
-class OilRefinery(Building):
-    def __init__(self):
-        super().__init__((3, 3), 24, 960)
-        self.production_speed = 1
-
-
-class ChemicalPlant(Building):
-    def __init__(self):
-        super().__init__((3, 3), 24, 720)
-        self.production_speed = 1
-
-
 class Item:
-    def __init__(self, name, n, time=None, components=None, n_com=None, img_name=None, made_in=None):
+    def __init__(self, name, n, time=None, components=None, n_com=None, img_name=None, made_in=None, excesses=None):
         self.name = name
         self.n = n
         self.time = time
         self.components = components
         self.n_com = n_com
         self.made_in = made_in
+        self.excesses = excesses
         if img_name:
             self.img_name = "Icons/" + img_name
         else:
@@ -131,15 +74,285 @@ class Item:
 selection = "silicon_ore"
 
 
+class Tree_node:
+    def __init__(self, data, quantity=None, excess=None):
+        self.children = []
+        self.data = data
+        self.quantity = copy.deepcopy(quantity) if quantity else None
+        self.excess = copy.deepcopy(excess) if excess else None
+        self.parent = None
+
+    def add_child(self, child):
+        child.parent = self
+        self.children.append(child)
+
+    def tree_from_edge(self, edges):
+        for edge in edges:
+            if edge[0] == self.data:
+                new_child = Tree_node(edge[1])
+                new_child.tree_from_edge(edges)
+                self.add_child(new_child)
+        return self
+
+    def add_quantity(self, name, quantity):
+        if self.data == name:
+            self.quantity = quantity
+        else:
+            for child in self.children:
+                child.add_quantity(name, quantity)
+
+    def add_excess(self, name, excess):
+        if self.data == name:
+            self.excess = excess
+        else:
+            for child in self.children:
+                child.add_excess(name, excess)
+
+    def draw(self, prefix='', is_last_child=False):
+        print(prefix + ('└' if is_last_child else '├') + '── ' + str(self.data) + " " + str(self.quantity) + " " + str(
+            self.excess))
+        for i, child in enumerate(self.children):
+            child.draw(prefix + ('    ' if is_last_child else '│   '), i == len(self.children) - 1)
+
+    def potential_exchgn(self, init, search):
+        result_array = []
+        if search in self.data:
+            result_array.append(self.data)
+        if init != self.data:
+            for child in self.children:
+                if child.data != init:
+                    for out in child.potential_exchgn(init, search):
+                        result_array.append(out)
+        return result_array
+
+    def get_node_by_name(self, data):
+        if self.data == data:
+            return self
+        else:
+            for child in self.children:
+                node = child.get_node_by_name(data)
+                if node is not None:
+                    return node
+        return None
+
+    def update_tree(self, sends, original_tree):
+        if type(self.parent) == type(None):
+            if self.data in sends.keys():
+                self.quantity = original_tree.get_node_by_name(self.data).quantity - sum(sends[self.data])
+            else:
+                self.quantity = original_tree.get_node_by_name(self.data).quantity
+        else:
+
+            item = "_".join(self.parent.data.split("_")[:-1])
+            item_act = "_".join(self.data.split("_")[:-1])
+            if type(Graph.ITEMS[item].n) == list:
+                items = []
+                for child in self.parent.children:
+                    items.append("_".join(child.data.split("_")[:-1]))
+                for pos_i, pos in enumerate(Graph.ITEMS[item].components):
+                    if check_same_items(items, pos):
+                        posi_index = pos_i
+                com_index = Graph.ITEMS[item].components[posi_index].index(item_act)
+                if self.data in sends.keys():
+                    self.quantity = self.parent.quantity * Graph.ITEMS[item].n_com[posi_index][com_index] / \
+                                    Graph.ITEMS[item].n[posi_index] - sum(sends[self.data])
+                else:
+                    self.quantity = self.parent.quantity * Graph.ITEMS[item].n_com[posi_index][com_index] / \
+                                    Graph.ITEMS[item].n[posi_index]
+            else:
+                com_index = Graph.ITEMS[item].components.index(item_act)
+                if self.data in sends.keys():
+                    self.quantity = self.parent.quantity * Graph.ITEMS[item].n_com[com_index] / Graph.ITEMS[
+                        item].n - sum(sends[self.data])
+                else:
+                    self.quantity = self.parent.quantity * Graph.ITEMS[item].n_com[com_index] / Graph.ITEMS[item].n
+
+        item = "_".join(self.data.split("_")[:-1])
+        if type(Graph.ITEMS[item].n) == list:
+            items = []
+            for child in self.children:
+                items.append("_".join(child.data.split("_")[:-1]))
+
+            for pos_i, pos in enumerate(Graph.ITEMS[item].components):
+                if check_same_items(items, pos):
+                    posi_index = pos_i
+            new_excs = []
+            if Graph.ITEMS[item].excesses[posi_index]:
+                for excs_num in Graph.ITEMS[item].excesses[posi_index][1]:
+                    new_excs.append(excs_num / Graph.ITEMS[item].n[posi_index] * self.quantity)
+                    self.excess = [Graph.ITEMS[item].excesses[posi_index][0], new_excs]
+        else:
+            new_excs = []
+            if Graph.ITEMS[item].excesses:
+                for excs_num in Graph.ITEMS[item].excesses[1]:
+                    new_excs.append(excs_num / Graph.ITEMS[item].n * self.quantity)
+                    self.excess = [Graph.ITEMS[item].excesses[0], new_excs]
+
+        for child in self.children:
+            child.update_tree(sends, original_tree)
+        return
+
+    def sub_excesses(self, sends_excs):
+        if self.data in sends_excs:
+            for excess_ind, excess_num in enumerate(self.excess[1]):
+                self.excess[1][excess_ind] -= sends_excs[self.data][1][excess_ind]
+
+        for child in self.children:
+            child.sub_excesses(sends_excs)
+
+    def reward(self):
+        exc_num_act = 0
+        if self.quantity < 0:
+            exc_num_act += abs(self.quantity)
+        if self.excess:
+            for exc_qtty in self.excess[1]:
+                exc_num_act += abs(exc_qtty)
+        for child in self.children:
+            exc_num_act += child.reward()
+        return exc_num_act
+
+    def observe(self, obs = None):
+        if not obs:
+            obs = []
+        if self.excess:
+            for exc_qtty in self.excess[1]:
+                obs.append(exc_qtty)
+        if self.children:
+            for child in self.children:
+                ret = child.observe()
+                for ret_num in ret:
+                    obs.append(ret_num)
+
+        return obs
+
+def isListEmpty(inList):
+    if isinstance(inList, list):  # Is a list
+        return all(map(isListEmpty, inList))
+    return False  # Not a list
+
+
+def check_same_items(arr1, arr2):
+    # Create sets of the arrays to remove duplicates
+    set1 = set(arr1)
+    set2 = set(arr2)
+
+    # Check if the sets are the same
+    return set1 == set2
+
+
+def my_ceil(a, precision=0):
+    return np.true_divide(np.ceil(a * 10 ** precision), 10 ** precision)
+
+
+class Excess_manager(gym.Env):
+    def __init__(self, n_acts, n_obs, tree, tree_copy, dict_potential, excesses, dict_excesses, relation_dict):
+        self.original_tree = tree_copy
+        self.tree = tree
+        self.excesses = excesses
+        self.dict_potential = dict_potential
+        self.relation_dict = relation_dict
+        self.dict_excesses = dict_excesses
+        self.action_space = gym.spaces.Box(low=0, high=1, shape=(1, n_acts), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=0, shape=(1,), dtype=np.float32)
+        self.n_obs = n_obs
+        self.reset()
+
+    def reset(self):
+        self.tree = copy.deepcopy(self.original_tree)
+        obs=[0]
+        return obs
+
+
+
+    def step(self, action):
+        action = action[0]
+        info = {}
+        done = False
+        sends = {}
+        for act_i, act in enumerate(action):
+            for key in self.relation_dict:
+                for indx in self.relation_dict[key]:
+                    if indx == act_i:
+                        excs_ind = self.tree.get_node_by_name(key).excess[0].index(
+                            "_".join(self.dict_potential[act_i].split("_")[:-1]))
+                        send = math.ceil(self.original_tree.get_node_by_name(key).excess[1][excs_ind] * act)
+                        if key not in sends.keys():
+                            sends[key] = []
+                        sends[key].append(send)
+        sends2 = {}
+        for key, value in self.dict_potential.items():
+            for key2, value2 in self.relation_dict.items():
+                for send_value_i, send_value in enumerate(value2):
+                    if send_value == key:
+                        if key not in sends2.keys():
+                            sends2[value] = []
+                        sends2[value].append(sends[key2][send_value_i])
+        sends_excs = {}
+
+        for sends_excess in self.excesses:
+            for indexes_i, indexes in enumerate(self.relation_dict[sends_excess]):
+                if not sends_excess in sends_excs.keys():
+                    sends_excs[sends_excess] = [self.excesses[sends_excess][0],
+                                                [0 for _ in self.excesses[sends_excess][0]]]
+
+                item = "_".join(self.dict_potential[indexes].split("_")[:-1])
+
+                sub_index = self.excesses[sends_excess][0].index(item)
+                sends_excs[sends_excess][1][sub_index] += sends[sends_excess][indexes_i]
+
+        self.tree.update_tree(sends2, self.original_tree)
+        self.tree.sub_excesses(sends_excs)
+
+
+        info["observation"] = self.tree.observe()
+
+        obs = [0]
+        '''
+        self.original_tree.draw()
+        print(self.original_tree.reward())
+        print("Reward", self.tree.reward())
+        self.tree.draw()
+        '''
+        if min(info["observation"]) < 0:
+            reward = -10
+        else:
+            reward = 10 * np.e ** (-abs(self.tree.reward() / self.original_tree.reward()))
+        info["tree"] = copy.deepcopy(self.tree)
+        if reward >= 11:
+            print(action)
+            print(sends)
+            print("Relation",self.relation_dict)
+            print("potential",self.dict_potential)
+            print("excesses",self.dict_excesses)
+            print(reward)
+            print("OLD")
+            self.original_tree.draw()
+            print("NEW")
+            self.tree.draw()
+            done = True
+        return obs, reward, done, info
+
+    def render(self, mode='human'):
+        self.tree.draw()
+
+    def return_tree(self):
+        return self.tree
+
+
 class Graph:
     MAX_ASSEMBLER_TIER = 3
     MAX_SMELTING_TIER = 2
     MAX_MINING_TIER = 2
+    MAX_CHEMICAL_TIER = 2
     factory_images = {"assembler": ["Icons/Icon_Assembling_Machine_Mk.I.png", "Icons/Icon_Assembling_Machine_Mk.II.png",
                                     "Icons/Icon_Assembling_Machine_Mk.III.png"],
                       "smelting_facility": ["Icons/Icon_Arc_Smelter.png", "Icons/Icon_Plane_Smelter.png"],
                       "mining_machine": ["Icons/Icon_Mining_Machine.png", "Icons/Icon_Advanced_Mining_Machine.png"],
-                      "research_facility": ["Icons/Icon_Matrix_Lab.png"]}
+                      "chemical_facility": ["Icons/Icon_Chemical_Plant.png", "Icons/Icon_Quantum_Chemical_Plant.png"],
+                      "research_facility": ["Icons/Icon_Matrix_Lab.png"],
+                      "refining_facility": ["Icons/Icon_Oil_Refinery.png"],
+                      "oil_extraction_facility": ["Icons/Icon_Oil_Extractor.png"],
+                      "water_pumping_facility": ["Icons/Icon_Water_Pump.png"], }
     ITEMS = {
         "gear": Item("gear", 1, 1, ["iron_ingot"], [1], "Icon_Gear.png", "assembler"),
         "iron_ingot": Item("iron_ingot", 1, 1, ["iron_ore"], [1], "Icon_Iron_Ingot.png", "smelting_facility"),
@@ -152,10 +365,13 @@ class Graph:
         "silicon_ore_vein": Item("silicon_ore_vein", 0, 0, None, None, "Icon_Silicon_Ore_Vein.png"),
         "copper_ore_vein": Item("copper_ore_vein", 0, 0, None, None, "Icon_Copper_Vein.png"),
         "copper_ore": Item("copper_ore", 1, 2, ["copper_ore_vein"], [1], "Icon_Copper_Ore.png", "mining_machine"),
+        "coal": Item("coal", 1, 2, ["coal_vein"], [1], "Icon_Coal.png", "mining_machine"),
+        "coal_vein": Item("coal_vein", 0, 0, None, None, "Icon_Coal_Vein.png"),
         "magnet": Item("magnet", 1, 1.5, ["iron_ore"], [1], "Icon_Magnet.png", "smelting_facility"),
         "copper_ingot": Item("copper_ingot", 1, 1, ["copper_ore"], [1], "Icon_Copper_Ingot.png", "smelting_facility"),
         "magnetic_coil": Item("magnetic_coil", 2, 1, ["magnet", "copper_ingot"], [2, 1], "Icon_Magnetic_Coil.png",
                               "assembler"),
+
         "conveyor_belt_mk.I": Item("conveyor_belt_mk.I", 3, 1, ["iron_ingot", "circuit_board"], [1, 1],
                                    "Icon_Sorter_Mk.I.png",
                                    "assembler"),
@@ -208,27 +424,64 @@ class Graph:
                                 [3, 2, 1, 2], "Icon_Traffic_Monitor.png", "assembler"),
         "steel": Item("steel", 1, 3, ["iron_ingot"],
                       [3], "Icon_Steel.png", "smelting_facility"),
-        "silicon_ore": Item([["silicon_ore"], ["silicon_ore"]], [1, 1], [10, 2], [["stone"], ["silicon_ore_vein"]],
-                            [[10], [1]], "Icon_Silicon_Ore.png", [" smelting_facility", "mining_machine"]),
+        "silicon_ore": Item("silicon_ore", [1, 1], [10, 2], [["stone"], ["silicon_ore_vein"]],
+                            [[10], [1]], "Icon_Silicon_Ore.png", ["smelting_facility", "mining_machine"]),
         "high-purity_silicon": Item("high-purity_silicon", 1, 2, ["silicon_ore"], [2], "Icon_High-Purity_Silicon.png",
                                     "smelting_facility"),
-
+        "energetic_graphite": Item("energetic_graphite", [1, 1], [2, 4], [["coal"], ["refined_oil", "hydrogen"]],
+                                   [[2], [1, 2]], "Icon_Energetic_Graphite.png",
+                                   ["smelting_facility", "refining_facility"], [[[], []], [["hydrogen"], [3]]]),
+        "refined_oil": Item("refined_oil", [2, 3], [4, 4], [["crude_oil"], ["refined_oil", "hydrogen", "coal"]],
+                            [[2], [2, 1, 1]], "Icon_Refined_Oil.png",
+                            ["refining_facility", "refining_facility"], [[["hydrogen"], [1]], [[], []]]),
+        "crude_oil": Item("crude_oil", 1, 1, ["crude_oil_vein"],
+                          [1], "Icon_Crude_Oil.png",
+                          "oil_extraction_facility"),
+        "crude_oil_vein": Item("crude_oil_vein", 0, 0, None, None, "Icon_Crude_Oil_Vein.png"),
+        "hydrogen": Item("hydrogen", [1, 1, 3], [4, 2, 4], [["crude_oil"], ["fire_ice"], ["refined_oil", "hydrogen"]],
+                         [[2], [2],
+                          [1, 2]], "Icon_Hydrogen.png",
+                         ["refining_facility", "chemical_facility", "refining_facility"],
+                         [[["refined_oil"], [2]], [["graphene"], [2]], [["energetic_graphite"], [1]]]),
+        "fire_ice": Item("fire_ice", 1, 2, ["fire_ice_vein"],
+                         [1], "Icon_Fire_Ice.png",
+                         "mining_machine"),
+        "fire_ice_vein": Item("fire_ice_vein", 0, 0, None, None, "Icon_Fire_Ice_Vein.png"),
+        "graphene": Item("graphene", [2, 2], [3, 2], [["energetic_graphite", "sulfuric_acid"], ["fire_ice"]],
+                         [[3, 1], [2]], "Icon_Graphene.png",
+                         ["chemical_facility", "chemical_facility"], [[[], []], [["hydrogen"], [1]]]),
+        "sulfuric_acid": Item("sulfuric_acid", [4, 1], [6, 1.2],
+                              [["refined_oil", "stone", "water"], ["sulfuric_acid_ocean"]],
+                              [[6, 8, 4], [1]], "Icon_Sulfuric_Acid.png",
+                              ["chemical_facility", "water_pumping_facility"], [[[], []], [[], []]]),
+        "water": Item("water", 1, 1.2, ["water_ocean"],
+                      [1], "Icon_Water.png",
+                      "water_pumping_facility"),
+        "water_ocean": Item("water_ocean", 0, 0, None, None),
+        "sulfuric_acid_ocean": Item("sulfuric_acid_ocean", 0, 0, None, None),
     }
 
     def __init__(self, objective, quantity):
+        self.code = {}
         self.objective = objective
         self.quantity = quantity
 
-    def calculate(self):
-        self.paths, self.layers, self.heights = self.get_paths()
-        self.vertex = [key for key in self.layers]
+    def calculate(self, ind=0):
+        self.paths, self.layers, self.heights = self.get_paths(ind=ind)
+        self.vertexes = self.get_vertexes()
         self.get_numbers()
         self.colour_edges()
         self.get_factories()
 
-    def calculate_full(self):
-        self.pre_edges = self.find_edges_full()
-        self.find_possibilities(self.pre_edges)
+    def get_vertexes(self):
+        vertexes = []
+        for path in self.paths:
+            if path not in vertexes:
+                vertexes.append(path)
+            for v in self.paths[path]:
+                if v not in vertexes:
+                    vertexes.append(v)
+        return vertexes
 
     def find_edges(self, prev_name=None, prev_path=None, counts=None):
         if prev_path is None:
@@ -242,54 +495,114 @@ class Graph:
         name_ind = Graph.ITEMS[self.objective].name + f"_{counts[Graph.ITEMS[self.objective].name]}"
 
         prev_path.append((prev_name, name_ind))
-
         if Graph.ITEMS[self.objective].components:
             for n_comp, comp in enumerate(Graph.ITEMS[self.objective].components):
                 prev_path = Graph(comp, 1).find_edges(name_ind, prev_path, counts)
         return prev_path
 
-    def find_edges_full(self, prev_path=None, prev_index="", ):
-        if prev_path is None:
-            self.prev_path = ""
-        else:
-            self.prev_path = prev_path
+    def find_edges_full(self, ind=0):
+        def get_combination(needed, parent, repeated=[]):
+            for_mixing = []
+            for itms in needed:
+                if len(itms) > 0:
+                    for itm in itms:
+                        if Graph.ITEMS[itm].components:
+                            if type(Graph.ITEMS[itm].components[0]) != str:
+                                components_copy = [comp for comp in Graph.ITEMS[itm].components if
+                                                   not any(map(lambda each: each in comp, repeated))]
+                                for_mixing.append(components_copy)
+                            else:
+                                for_mixing.append([Graph.ITEMS[itm].components])
+                        else:
+                            for_mixing.append([[]])
+                else:
+                    for_mixing.append([[]])
 
-        if Graph.ITEMS[self.objective].components:
-            if type(Graph.ITEMS[self.objective].components[0]) == str:
-                for n_comp, comp in enumerate(Graph.ITEMS[self.objective].components):
-                    print(self.objective, self.prev_path)
+            new_combinations = list(itertools.product(*for_mixing))
+            if not isListEmpty(for_mixing):
+                for n_comb in new_combinations:
+                    repeated = []
 
-                    prev_path = Graph(comp, 1).find_edges_full(self.prev_path + "0")
+                    new_child = Tree_node(list(n_comb))
+                    parent.add_child(new_child)
+                    data_copy = []
+                    for point_data_i, point_data in enumerate(new_child.parent.data):
+                        if point_data == []:
+                            data_copy.append(['1'])
+                        else:
+                            data_copy.append(point_data)
+                    for compo_i, compo in enumerate(list(itertools.chain.from_iterable(data_copy))):
+                        if compo != '1':
+                            # print(compo, new_child.data[compo_i])
+                            pass
+                        if compo in new_child.data[compo_i]:
+                            repeated.append(compo)
 
+                    get_combination(list(n_comb), new_child, repeated)
+
+        def get_all_paths(node):
+            if len(node.children) == 0:
+                return [[node.data]]
             else:
-                for splits, components in enumerate(Graph.ITEMS[self.objective].components):
+                return [
+                    [node.data] + path for child in node.children for path in get_all_paths(child)
+                ]
 
-                    for n_comp, comp in enumerate(components):
-                        print(self.objective, self.prev_path)
-                        prev_path = Graph(comp, 1).find_edges_full(self.prev_path + str(splits))
-        else:
-            self.prev_path += "0"
-            print("END", self.prev_path)
-        return self.prev_path
+        def get_edge_from_comb(comb):
+            prev = []
+            edges = []
+            seen = {}
+            comb_copy = []
+            for c_i, c in enumerate(comb):
 
-    def find_possibilities(self, pre_edges):
-        possibilities = []
-        qnt = 0
-        variants = {0: []}
-        for pre in pre_edges:
-            print(pre[0].split(","))
+                c_cop = []
+                for row_i, row in enumerate(c):
+                    row_cop = []
+                    for item_i, item in enumerate(row):
+                        if item not in seen.keys():
+                            seen[item] = 0
+                        else:
+                            seen[item] += 1
+                        row_cop.append(item + f"_{seen[item]}")
+                    c_cop.append(row_cop)
+                comb_copy.append(c_cop)
+            comb = comb_copy
+            for c_i, c in enumerate(comb):
+                for row_i, row in enumerate(c):
+                    for item_i, item in enumerate(row):
+                        if prev:
+                            edges.append((prev[row_i], item))
+                        else:
+                            edges.append((None, item))
+
+                prev = []
+                for row_i, row in enumerate(c):
+
+                    if row == []:
+                        prev.append('')
+                    else:
+                        for item in row:
+                            prev.append(item)
+
+            return edges
+
+        root = Tree_node([[self.objective]])
+
+        get_combination([[self.objective]], root)
+        self.Tree = root
+        self.all_posibilities = len(get_all_paths(root))
+        return get_edge_from_comb(get_all_paths(root)[ind])
 
     def layer(self, objs):
-        m_arrs=[]
+        m_arrs = []
         for prev in objs:
             arrs = []
             for n in prev:
-                n_a=[]
+                n_a = []
                 for obj in n:
                     if Graph.ITEMS[obj].components:
                         if type(Graph.ITEMS[obj].name) == list:
                             for i, nam in enumerate(Graph.ITEMS[obj].name):
-
                                 arr = []
                                 for j, comp in enumerate(Graph.ITEMS[obj].components[i]):
                                     arr.append(comp)
@@ -302,19 +615,12 @@ class Graph:
                     n_a.append(arr)
                 arrs.append(n_a)
             m_arrs.append(arrs)
-        return  arrs
+        return arrs
 
-    def exec_layers(self, lay):
-        lay = [[lay]]
-        for st in range(10):
-            lay = self.layer(lay)
-            print(lay)
-
-    def get_paths(self):
+    def get_paths(self, ind=0):
         path = {}
         path_nums = {"None": -1}
-        self.edges = self.find_edges()
-
+        self.edges = self.find_edges_full(ind=ind)
         for edge in self.edges:
             path_nums[str(edge[1])] = path_nums[str(edge[0])] + 1
 
@@ -324,41 +630,153 @@ class Graph:
 
                 else:
                     path[str(edge[0])].append(edge[1])
-        layers = {}
+        layers = {val: [key for key, value in path_nums.items() if value == val] for val in set(path_nums.values())}
         heights = {}
-        for key, val in path_nums.items():
-            if val not in layers.keys():
-                layers[val] = [key]
-            else:
-                layers[val].append(key)
-        for lay in layers:
-            for i, item in enumerate(layers[lay]):
-                if len(layers[lay]) % 2 == 0:
-
-                    if i - len(layers[lay]) // 2 >= 0:
-                        heights[item] = i + 1 - len(layers[lay]) // 2
-                    else:
-                        heights[item] = i - len(layers[lay]) // 2
-                else:
-                    if i - len(layers[lay]) // 2 > 0:
-                        heights[item] = i - len(layers[lay]) // 2
-                    elif i - len(layers[lay]) // 2 < 0:
-                        heights[item] = i - len(layers[lay]) // 2
-                    else:
-                        heights[item] = 0
+        for lay in layers.values():
+            for i, item in enumerate(lay):
+                heights[item] = i - len(lay) // 2
 
         return path, layers, heights
 
     def get_numbers(self):
+        print("______________Numbers______________")
         per_min = {self.objective + "_0": self.quantity}
+        excesses_graphs = {}
+        excesses = {}
+        fact_tree = Tree_node(self.objective + "_0", self.quantity)
+        fact_tree.tree_from_edge(self.edges[1:])
 
         for edge in self.edges[1:]:
             item = "_".join(edge[0].split("_")[:-1])
-            component = "_".join(edge[1].split("_")[:-1])
-            component_ind = Graph.ITEMS[item].components.index(component)
-            per_min[edge[1]] = per_min[edge[0]] / Graph.ITEMS[item].n * Graph.ITEMS[item].n_com[component_ind]
+            item_2 = "_".join(edge[1].split("_")[:-1])
+
+            if type(Graph.ITEMS[item].components[0]) == str:
+                component = "_".join(edge[1].split("_")[:-1])
+
+                component_ind = Graph.ITEMS[item].components.index(component)
+                per_min[edge[1]] = per_min[edge[0]] / Graph.ITEMS[item].n * Graph.ITEMS[item].n_com[component_ind]
+            else:
+                sub_ncom = []
+                for edge2 in self.edges:
+                    if edge2[0] == edge[0]:
+                        sub_ncom.append("_".join(edge2[1].split("_")[:-1]))
+                component = "_".join(edge[1].split("_")[:-1])
+                n_com_ind = Graph.ITEMS[item].components.index(sub_ncom)
+                component_ind = Graph.ITEMS[item].components[n_com_ind].index(component)
+                per_min[edge[1]] = per_min[edge[0]] / Graph.ITEMS[item].n[n_com_ind] * \
+                                   Graph.ITEMS[item].n_com[n_com_ind][component_ind]
+
+                for excess_name_i, excess_name in enumerate(Graph.ITEMS[item].excesses[n_com_ind][0]):
+                    if excess_name not in excesses_graphs.keys():
+                        excesses_graphs[excess_name] = np.zeros((len(self.vertexes), len(self.vertexes)))
+                    excesses_graphs[excess_name][self.vertexes.index(edge[0])][self.vertexes.index(edge[0])] = \
+                        Graph.ITEMS[item].excesses[n_com_ind][1][excess_name_i] * per_min[
+                            edge[0]] / Graph.ITEMS[item].n[n_com_ind]
+                    excesses[edge[0]] = [Graph.ITEMS[item].excesses[n_com_ind][0], [exc * per_min[
+                        edge[0]] / Graph.ITEMS[item].n[n_com_ind] for exc in Graph.ITEMS[item].excesses[n_com_ind][1]]]
+            fact_tree.add_quantity(edge[1], per_min[edge[1]])
+            if edge[0] in excesses.keys():
+                fact_tree.add_excess(edge[0], excesses[edge[0]])
+            if item_2 == "crude_oil_vein":
+                per_min[edge[1]] = my_ceil(
+                    per_min[edge[0]] / (Graph.ITEMS[item].n * Game.MINING_SPEED) * Graph.ITEMS[item].n_com[
+                        component_ind], 2)
+        potential = {}
+        for key in excesses.keys():
+            if key not in potential.keys():
+                potential[key] = []
+            for search in excesses[key][0]:
+                potential[key].append(fact_tree.potential_exchgn(key, search))
+        n_acts = 0
+        n_obs = 0
+        dict_potential = {}
+        dict_excesses = {}
+        for sub_potential in potential:
+            if potential[sub_potential] != [[]]:
+                dict_excesses[n_obs] = sub_potential
+                for prod in potential[sub_potential]:
+                    for sub_prod in prod:
+                        dict_potential[n_acts] = sub_prod
+                        n_acts += 1
+
+                n_obs += 1
+
+        for key in potential.copy().keys():
+            if potential[key] == [[]]:
+                potential.pop(key)
+                excesses.pop(key)
+
+        aux_ind = 0
+        relation_dict = {}
+        for key in potential:
+            relation_dict[key] = []
+            for comp in potential[key][0]:
+                relation_dict[key].append(aux_ind)
+                aux_ind += 1
+
+        print(n_acts, n_obs)
+        print(dict_potential)
+        print(potential)
+        print(excesses)
+        print(relation_dict)
+        print(dict_excesses)
+        fact_tree.draw()
+        original_tree = copy.deepcopy(fact_tree)
+        env = Excess_manager(n_acts, n_obs, fact_tree, original_tree, dict_potential, excesses, dict_excesses,
+                             relation_dict)
+        besttree = None
+        if n_obs > 0:
+            env = DummyVecEnv([lambda: env])
+            model = PPO("MlpPolicy", env, verbose=1)
+            obs = env.reset()
+            for i in range(5):
+                action, _states = model.predict(obs)
+                print(action)
+                obs, rewards, done, info = env.step(action)
+
+                if done:
+                    break
+            print(obs, rewards, done, action, info)
+            env.close()
+            rewstd = -1
+            while np.round(rewstd,1) != 0:
+                model.learn(total_timesteps=10_000)
+
+                print("________")
+                obs = env.reset()
+                rewmean = []
+                trees = []
+                bestreward = 0
+
+                for i in range(100):
+                    action, _states = model.predict(obs)
+                    obs, rewards, done, info = env.step(action)
+                    rewmean.append(rewards[0])
+                    trees.append(info[0]["tree"])
+                rewstd = np.std(rewmean)
+                if max(rewmean) > bestreward:
+                    bestreward = max(rewmean)
+                    besttree = copy.deepcopy(trees[np.argmax(np.array(rewmean))])
+                print("MEAN",np.round(np.mean(rewmean),1),"+/-", np.round(rewstd,1), np.round(rewstd/np.mean(rewmean),2))
+                if 10 in rewmean:
+                    break
+            print("BESTTREE")
+            besttree.draw()
+
+            print("____________________-")
+            env.close()
+
 
         self.per_min = per_min
+        self.per_min_2 = {}
+        if besttree:
+            for key in self.per_min:
+                self.per_min_2[key] = besttree.get_node_by_name(key).quantity
+        else:
+            self.per_min_2 = per_min
+        self.excesses_graphs = excesses_graphs
+        self.excesses = excesses
+        print("______________END______________")
 
     def colour_edges(self):
         edge_colours = {}
@@ -375,13 +793,28 @@ class Graph:
 
     def get_factories(self):
         self.factories = {}
-        print("-----------------")
         for key, val in self.per_min.items():
-
-            factories = None
             key_clean = "_".join(key.split("_")[:-1])
-            if Graph.ITEMS[key_clean].made_in == "assembler":
-                prod_1 = 60 / Graph.ITEMS[key_clean].time * Graph.ITEMS[key_clean].n
+            if type(Graph.ITEMS[key_clean].time) != float and type(Graph.ITEMS[key_clean].time) != int:
+                factories = None
+                sub_ncom = []
+                for edge2 in self.edges:
+                    if edge2[0] == key:
+                        sub_ncom.append("_".join(edge2[1].split("_")[:-1]))
+
+                n_com_ind = Graph.ITEMS[key_clean].components.index(sub_ncom)
+
+                time = Graph.ITEMS[key_clean].time[n_com_ind]
+                number = Graph.ITEMS[key_clean].n[n_com_ind]
+                machine = Graph.ITEMS[key_clean].made_in[n_com_ind]
+
+            else:
+                time = Graph.ITEMS[key_clean].time
+                number = Graph.ITEMS[key_clean].n
+                machine = Graph.ITEMS[key_clean].made_in
+
+            if machine == "assembler":
+                prod_1 = 60 / time * number
                 prods = [prod_1 * 0.75, prod_1, prod_1 * 1.5]
                 if Graph.MAX_ASSEMBLER_TIER == 1:
                     num_ass = val / prods[0]
@@ -411,15 +844,13 @@ class Graph:
                             factories = ["assembler", [0, 1, int(num_ass)]]
                         else:
                             factories = ["assembler", [0, 0, int(num_ass) + 1]]
-                        print("EXTRA", extra)
+
 
                     else:
                         factories = ["assembler", [0, 0, int(num_ass)]]
 
-                print(key, val, factories)
-
-            if Graph.ITEMS[key_clean].made_in == "smelting_facility":
-                prod_1 = 60 / Graph.ITEMS[key_clean].time * Graph.ITEMS[key_clean].n
+            elif machine == "smelting_facility":
+                prod_1 = 60 / time * number
                 prods = [prod_1, prod_1 * 2]
                 if Graph.MAX_SMELTING_TIER == 1:
                     num_ass = val / prods[0]
@@ -438,12 +869,9 @@ class Graph:
 
                     else:
                         factories = ["smelting_facility", [0, int(num_ass), 0]]
-                print(key, val, factories)
 
-            if Graph.ITEMS[key_clean].made_in == "mining_machine":
-                print(key_clean)
-                print(Graph.ITEMS[key_clean].n)
-                prod_1 = 60 / Graph.ITEMS[key_clean].time * Graph.ITEMS[key_clean].n
+            elif machine == "mining_machine":
+                prod_1 = 60 / time * number
                 prods = [prod_1, prod_1 * 2]
                 if Graph.MAX_MINING_TIER == 1:
                     num_ass = val / prods[0]
@@ -457,11 +885,15 @@ class Graph:
                         factories = ["mining_machine", [0, int(num_ass) + 1]]
                     else:
                         factories = ["mining_machine", [0, int(num_ass)]]
-                print(key, val, factories)
-            if Graph.ITEMS[key_clean].made_in == "research_facility":
-                print(key_clean)
-                print(Graph.ITEMS[key_clean].n)
-                prod_1 = 60 / Graph.ITEMS[key_clean].time * Graph.ITEMS[key_clean].n
+
+            elif machine == "oil_extraction_facility":
+                prod_1 = 60 / time * number
+                prods = [prod_1]
+                num_ass = val / prods[0]
+                factories = ["oil_extraction_facility", [1]]
+
+            elif machine == "research_facility":
+                prod_1 = 60 / time * number
                 prods = [prod_1]
                 num_ass = val / prods[0]
                 if num_ass % 1 != 0:
@@ -469,7 +901,39 @@ class Graph:
                 else:
                     factories = ["research_facility", [int(num_ass)]]
 
-                print(key, val, factories)
+            elif machine == "refining_facility":
+                prod_1 = 60 / time * number
+                prods = [prod_1]
+                num_ass = val / prods[0]
+                if num_ass % 1 != 0:
+                    factories = ["refining_facility", [int(num_ass) + 1]]
+                else:
+                    factories = ["refining_facility", [int(num_ass)]]
+
+            elif machine == "chemical_facility":
+                prod_1 = 60 / time * number
+                prods = [prod_1, prod_1 * 2]
+                if Graph.MAX_CHEMICAL_TIER == 1:
+                    num_ass = val / prods[0]
+                    if num_ass % 1 != 0:
+                        factories = ["chemical_facility", [int(num_ass) + 1, 0]]
+                    else:
+                        factories = ["chemical_facility", [int(num_ass), 0]]
+                elif Graph.MAX_CHEMICAL_TIER == 2:
+                    num_ass = val / prods[1]
+                    if num_ass % 1 != 0:
+                        factories = ["chemical_facility", [0, int(num_ass) + 1]]
+                    else:
+                        factories = ["chemical_facility", [0, int(num_ass)]]
+
+            elif machine == "water_pumping_facility":
+                prod_1 = 60 / time * number
+                prods = [prod_1]
+                num_ass = val / prods[0]
+                if num_ass % 1 != 0:
+                    factories = ["water_pumping_facility", [int(num_ass) + 1]]
+                else:
+                    factories = ["water_pumping_facility", [int(num_ass)]]
             self.factories[key] = factories
 
     def draw(self):
@@ -483,6 +947,7 @@ class Graph:
         LEN = 500
         LEN_DECAY_MULT = 0.9
         positions = {}
+        self.per_min_act = copy.deepcopy(self.per_min)
 
         for p, key in enumerate(self.paths.keys()):
             lines = len(self.paths[key])
@@ -525,13 +990,16 @@ class Graph:
                     first_drag = True
                 elif event.type == pygame.MOUSEBUTTONUP:
                     dragging = False
-                elif event.type == pygame.MOUSEBUTTONUP:
-                    dragging = False
                 if event.type == pygame.MOUSEWHEEL:
-
                     M += event.y * SCROLL_MULT
                     if M <= 0.01:
                         M = 0.01
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_o:
+                        self.per_min_act = copy.deepcopy(self.per_min_2)
+                    if event.key == pygame.K_p:
+                        self.per_min_act = copy.deepcopy(self.per_min)
+
 
             if dragging:
                 pos = pygame.mouse.get_pos()
@@ -573,7 +1041,7 @@ class Graph:
                                        (M * positions[key][1] + OFFSET_Y))
                     screen.blit(imp, imp_rect)
                     font = pygame.font.Font('freesansbold.ttf', 20)
-                    text = font.render(str(self.per_min[key]), True, WHITE)
+                    text = font.render(str(self.per_min_act[key]), True, WHITE)
                     text = pygame.transform.scale(text, (M * 2 * text.get_width(), M * 2 * text.get_height()))
 
                     textRect = text.get_rect()
@@ -586,8 +1054,10 @@ class Graph:
                     height = 0
                     if self.factories[key]:
                         for i, fact in enumerate(self.factories[key][1]):
-
-                            if fact != 0:
+                            key_clean = "_".join(key.split("_")[:-1])
+                            if key_clean == "fire_ice":
+                                pass
+                            if fact != 0 and Graph.ITEMS[key_clean].made_in is not None:
                                 text = font.render(str(fact), True, WHITE)
                                 text = pygame.transform.scale(text,
                                                               (M * 2 * text.get_width(), M * 2 * text.get_height()))
@@ -616,6 +1086,12 @@ class Graph:
         pygame.quit()
 
 
-selection = "high-purity_silicon"
+selection = "graphene"
 line = Graph(selection, 120)
-line.exec_layers([line.objective])
+line.calculate(ind=0)
+print("All posibilities", line.all_posibilities)
+
+for ind in range(line.all_posibilities):
+    ind = 1
+    line.calculate(ind=ind)
+    line.draw()
