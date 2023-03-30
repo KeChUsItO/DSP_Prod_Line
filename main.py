@@ -9,14 +9,10 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from gym import spaces
 import os
 import warnings
+
 warnings.filterwarnings('ignore')
-import tensorflow as tf
 os.environ["TF_DEVICE_NAME"] = "/device:GPU:0"
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
-
-
-
 
 BLUE = (0, 0, 255)
 BLACK = (0, 0, 0)
@@ -211,7 +207,7 @@ class Tree_node:
             exc_num_act += child.reward()
         return exc_num_act
 
-    def observe(self, obs = None):
+    def observe(self, obs=None):
         if not obs:
             obs = []
         if self.excess:
@@ -224,6 +220,7 @@ class Tree_node:
                     obs.append(ret_num)
 
         return obs
+
 
 def isListEmpty(inList):
     if isinstance(inList, list):  # Is a list
@@ -259,10 +256,8 @@ class Excess_manager(gym.Env):
 
     def reset(self):
         self.tree = copy.deepcopy(self.original_tree)
-        obs=[0]
+        obs = [0]
         return obs
-
-
 
     def step(self, action):
         action = action[0]
@@ -303,7 +298,6 @@ class Excess_manager(gym.Env):
         self.tree.update_tree(sends2, self.original_tree)
         self.tree.sub_excesses(sends_excs)
 
-
         info["observation"] = self.tree.observe()
 
         obs = [0]
@@ -321,9 +315,9 @@ class Excess_manager(gym.Env):
         if reward >= 11:
             print(action)
             print(sends)
-            print("Relation",self.relation_dict)
-            print("potential",self.dict_potential)
-            print("excesses",self.dict_excesses)
+            print("Relation", self.relation_dict)
+            print("potential", self.dict_potential)
+            print("excesses", self.dict_excesses)
             print(reward)
             print("OLD")
             self.original_tree.draw()
@@ -462,16 +456,19 @@ class Graph:
     }
 
     def __init__(self, objective, quantity):
+        self.po = None
         self.code = {}
         self.objective = objective
         self.quantity = quantity
 
     def calculate(self, ind=0):
+        self.new_edges = []
         self.paths, self.layers, self.heights = self.get_paths(ind=ind)
         self.vertexes = self.get_vertexes()
         self.get_numbers()
         self.colour_edges()
         self.get_factories()
+
 
     def get_vertexes(self):
         vertexes = []
@@ -714,17 +711,12 @@ class Graph:
                 relation_dict[key].append(aux_ind)
                 aux_ind += 1
 
-        print(n_acts, n_obs)
-        print(dict_potential)
-        print(potential)
-        print(excesses)
-        print(relation_dict)
-        print(dict_excesses)
         fact_tree.draw()
         original_tree = copy.deepcopy(fact_tree)
         env = Excess_manager(n_acts, n_obs, fact_tree, original_tree, dict_potential, excesses, dict_excesses,
                              relation_dict)
         besttree = None
+        best_action = None
         if n_obs > 0:
             env = DummyVecEnv([lambda: env])
             model = PPO("MlpPolicy", env, verbose=1)
@@ -739,13 +731,14 @@ class Graph:
             print(obs, rewards, done, action, info)
             env.close()
             rewstd = -1
-            while np.round(rewstd,1) != 0:
+            while np.round(rewstd, 1) != 0:
                 model.learn(total_timesteps=10_000)
 
                 print("________")
                 obs = env.reset()
                 rewmean = []
                 trees = []
+                actions = []
                 bestreward = 0
 
                 for i in range(100):
@@ -753,11 +746,14 @@ class Graph:
                     obs, rewards, done, info = env.step(action)
                     rewmean.append(rewards[0])
                     trees.append(info[0]["tree"])
+                    actions.append(action)
                 rewstd = np.std(rewmean)
                 if max(rewmean) > bestreward:
                     bestreward = max(rewmean)
                     besttree = copy.deepcopy(trees[np.argmax(np.array(rewmean))])
-                print("MEAN",np.round(np.mean(rewmean),1),"+/-", np.round(rewstd,1), np.round(rewstd/np.mean(rewmean),2))
+                    best_action = copy.deepcopy(actions[np.argmax(np.array(rewmean))])
+                print("MEAN", np.round(np.mean(rewmean), 1), "+/-", np.round(rewstd, 1),
+                      np.round(rewstd / np.mean(rewmean), 2))
                 if 10 in rewmean:
                     break
             print("BESTTREE")
@@ -766,12 +762,30 @@ class Graph:
             print("____________________-")
             env.close()
 
-
+            print(best_action)
+            print(dict_potential)
+            print(potential)
+            print(excesses)
+            print(relation_dict)
+            print(dict_excesses)
         self.per_min = per_min
         self.per_min_2 = {}
+
         if besttree:
             for key in self.per_min:
                 self.per_min_2[key] = besttree.get_node_by_name(key).quantity
+
+        if type(best_action) != type(None):
+            self.new_edges = []
+            for b_act_i, b_act in enumerate(best_action[0][0]):
+                if b_act != 0:
+                    for keys, values in relation_dict.items():
+                        for sub_indx in values:
+                            if sub_indx == b_act_i:
+                                come_key = keys
+                                break
+                    new_edge = (come_key, besttree.get_node_by_name(dict_potential[b_act_i]).parent.data)
+                    self.new_edges.append(new_edge)
         else:
             self.per_min_2 = per_min
         self.excesses_graphs = excesses_graphs
@@ -790,6 +804,18 @@ class Graph:
                     else:
                         edge_colours[edge] = BLUE
         self.edge_colours = edge_colours
+        if self.per_min_2:
+            edge_colours = {}
+            for key, value in self.per_min_2.items():
+                for edge in self.edges:
+                    if edge[1] == key:
+                        if value <= 6 * 60:
+                            edge_colours[edge] = ORANGE
+                        elif 6 * 60 < value <= 12 * 60:
+                            edge_colours[edge] = GR_BL
+                        else:
+                            edge_colours[edge] = BLUE
+        self.edge_colours_2 = edge_colours
 
     def get_factories(self):
         self.factories = {}
@@ -948,6 +974,7 @@ class Graph:
         LEN_DECAY_MULT = 0.9
         positions = {}
         self.per_min_act = copy.deepcopy(self.per_min)
+        self.edge_colours_act = copy.deepcopy(self.edge_colours)
 
         for p, key in enumerate(self.paths.keys()):
             lines = len(self.paths[key])
@@ -979,6 +1006,8 @@ class Graph:
         run = True
         dragging = False
         clock = pygame.time.Clock()
+        mode = "normal"
+
         while run:
             clock.tick(FPS)
             screen.fill(BLACK)
@@ -997,9 +1026,14 @@ class Graph:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_o:
                         self.per_min_act = copy.deepcopy(self.per_min_2)
+                        if self.edge_colours_2:
+                            self.edge_colours_act = copy.deepcopy(self.edge_colours_2)
+
+                        mode = "optimal"
                     if event.key == pygame.K_p:
                         self.per_min_act = copy.deepcopy(self.per_min)
-
+                        self.edge_colours_act = copy.deepcopy(self.edge_colours)
+                        mode = "normal"
 
             if dragging:
                 pos = pygame.mouse.get_pos()
@@ -1012,12 +1046,34 @@ class Graph:
                 pos_last = pos
             for edge in self.edges[1:]:
                 va, vb = edge
-                color = self.edge_colours[edge]
-                pygame.draw.line(screen, color,
-                                 (M * positions[va][0] + OFFSET_X, M * positions[va][1] + OFFSET_Y),
-                                 (M * positions[vb][0] + OFFSET_X, M * positions[vb][1] + OFFSET_Y))
+                if self.per_min_act[va] > 0 and self.per_min_act[vb] > 0:
+                    color = self.edge_colours_act[edge]
+                    pygame.draw.line(screen, color,
+                                     (M * positions[va][0] + OFFSET_X, M * positions[va][1] + OFFSET_Y),
+                                     (M * positions[vb][0] + OFFSET_X, M * positions[vb][1] + OFFSET_Y))
+            if mode == "optimal":
+                if self.new_edges:
+                    for edge in self.new_edges:
+                        va, vb = edge
+                        # color = self.edge_colours[edge]
+                        color = WHITE
+                        pygame.draw.line(screen, color,
+                                         (M * positions[va][0] + OFFSET_X + M * 20 * (
+                                                     (positions[vb][1] - positions[va][1]) / np.sqrt(
+                                                 (positions[vb][1] - positions[va][1]) ** 2 + (
+                                                             positions[vb][0] - positions[va][0]) ** 2)),
+                                          M * positions[va][1] + OFFSET_Y - M * 20 * (
+                                                      (positions[vb][0] - positions[va][0]) / np.sqrt(
+                                                  (positions[vb][1] - positions[va][1]) ** 2 + (
+                                                              positions[vb][0] - positions[va][0]) ** 2))),
+                                         (M * positions[vb][0] + OFFSET_X + M * 20 * (
+                                                     (positions[vb][1] - positions[va][1]) / np.sqrt(
+                                                 (positions[vb][1] - positions[va][1]) ** 2 + (
+                                                             positions[vb][0] - positions[va][0]) ** 2)),
+                                          M * positions[vb][1] + OFFSET_Y - M * 20 * ((positions[vb][0] - positions[va][0]) / np.sqrt(
+                                              (positions[vb][1] - positions[va][1]) ** 2 + (
+                                                          positions[vb][0] - positions[va][0]) ** 2))))
             for p, key in enumerate(positions):
-
                 name_array = key.split("_")[:-1]
                 name_clean = "_".join(name_array)
                 if not Graph.ITEMS[name_clean].img_name:
@@ -1034,53 +1090,54 @@ class Graph:
 
                     pygame.display.set_caption('image')
                 else:
-                    imp = pygame.image.load(Graph.ITEMS[name_clean].img_name).convert_alpha()
-                    imp = pygame.transform.scale(imp, (M * 2 * imp.get_width(), M * 2 * imp.get_height()))
-                    imp_rect = imp.get_rect()
-                    imp_rect.center = ((M * positions[key][0] + OFFSET_X),
-                                       (M * positions[key][1] + OFFSET_Y))
-                    screen.blit(imp, imp_rect)
-                    font = pygame.font.Font('freesansbold.ttf', 20)
-                    text = font.render(str(self.per_min_act[key]), True, WHITE)
-                    text = pygame.transform.scale(text, (M * 2 * text.get_width(), M * 2 * text.get_height()))
+                    if self.per_min_act[key] > 0:
+                        imp = pygame.image.load(Graph.ITEMS[name_clean].img_name).convert_alpha()
+                        imp = pygame.transform.scale(imp, (M * 2 * imp.get_width(), M * 2 * imp.get_height()))
+                        imp_rect = imp.get_rect()
+                        imp_rect.center = ((M * positions[key][0] + OFFSET_X),
+                                           (M * positions[key][1] + OFFSET_Y))
+                        screen.blit(imp, imp_rect)
+                        font = pygame.font.Font('freesansbold.ttf', 20)
+                        text = font.render(str(self.per_min_act[key]), True, WHITE)
+                        text = pygame.transform.scale(text, (M * 2 * text.get_width(), M * 2 * text.get_height()))
 
-                    textRect = text.get_rect()
-                    pygame.transform.scale(text, (M * text.get_width(), M * text.get_height()))
-                    # set the center of the rectangular object.
-                    textRect.midtop = ((M * positions[key][0] + OFFSET_X),
-                                       (M * positions[key][1] + OFFSET_Y + imp.get_height() // 2))
+                        textRect = text.get_rect()
+                        pygame.transform.scale(text, (M * text.get_width(), M * text.get_height()))
+                        # set the center of the rectangular object.
+                        textRect.midtop = ((M * positions[key][0] + OFFSET_X),
+                                           (M * positions[key][1] + OFFSET_Y + imp.get_height() // 2))
 
-                    screen.blit(text, textRect)
-                    height = 0
-                    if self.factories[key]:
-                        for i, fact in enumerate(self.factories[key][1]):
-                            key_clean = "_".join(key.split("_")[:-1])
-                            if key_clean == "fire_ice":
-                                pass
-                            if fact != 0 and Graph.ITEMS[key_clean].made_in is not None:
-                                text = font.render(str(fact), True, WHITE)
-                                text = pygame.transform.scale(text,
-                                                              (M * 2 * text.get_width(), M * 2 * text.get_height()))
+                        screen.blit(text, textRect)
+                        height = 0
+                        if self.factories[key]:
+                            for i, fact in enumerate(self.factories[key][1]):
+                                key_clean = "_".join(key.split("_")[:-1])
+                                if key_clean == "fire_ice":
+                                    pass
+                                if fact != 0 and Graph.ITEMS[key_clean].made_in is not None:
+                                    text = font.render(str(fact), True, WHITE)
+                                    text = pygame.transform.scale(text,
+                                                                  (M * 2 * text.get_width(), M * 2 * text.get_height()))
 
-                                textRect = text.get_rect()
-                                pygame.transform.scale(text, (M * text.get_width(), M * text.get_height()))
-                                # set the center of the rectangular object.
-                                textRect.midbottom = ((M * positions[key][0] + OFFSET_X + text.get_width() // 1.5),
-                                                      (M * positions[key][
-                                                          1] + OFFSET_Y - imp.get_height() // 2 - height * text.get_height()))
+                                    textRect = text.get_rect()
+                                    pygame.transform.scale(text, (M * text.get_width(), M * text.get_height()))
+                                    # set the center of the rectangular object.
+                                    textRect.midbottom = ((M * positions[key][0] + OFFSET_X + text.get_width() // 1.5),
+                                                          (M * positions[key][
+                                                              1] + OFFSET_Y - imp.get_height() // 2 - height * text.get_height()))
 
-                                screen.blit(text, textRect)
-                                imp_fact = pygame.image.load(
-                                    Graph.factory_images[self.factories[key][0]][i]).convert_alpha()
-                                imp_fact = pygame.transform.scale(imp_fact,
-                                                                  (text.get_height(), text.get_height()))
-                                imp_fact_rect = imp_fact.get_rect()
-                                imp_fact_rect.midbottom = (
-                                    (M * positions[key][0] + OFFSET_X - imp_fact.get_width() // 1.5),
-                                    (M * positions[key][
-                                        1] + OFFSET_Y - imp.get_height() // 2 - height * text.get_height()))
-                                screen.blit(imp_fact, imp_fact_rect)
-                                height += 1
+                                    screen.blit(text, textRect)
+                                    imp_fact = pygame.image.load(
+                                        Graph.factory_images[self.factories[key][0]][i]).convert_alpha()
+                                    imp_fact = pygame.transform.scale(imp_fact,
+                                                                      (text.get_height(), text.get_height()))
+                                    imp_fact_rect = imp_fact.get_rect()
+                                    imp_fact_rect.midbottom = (
+                                        (M * positions[key][0] + OFFSET_X - imp_fact.get_width() // 1.5),
+                                        (M * positions[key][
+                                            1] + OFFSET_Y - imp.get_height() // 2 - height * text.get_height()))
+                                    screen.blit(imp_fact, imp_fact_rect)
+                                    height += 1
 
             pygame.display.flip()
         pygame.quit()
@@ -1090,8 +1147,8 @@ selection = "graphene"
 line = Graph(selection, 120)
 line.calculate(ind=0)
 print("All posibilities", line.all_posibilities)
-
+ind = 1
 for ind in range(line.all_posibilities):
-    ind = 1
+
     line.calculate(ind=ind)
     line.draw()
