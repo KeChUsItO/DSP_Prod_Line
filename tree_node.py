@@ -6,16 +6,16 @@ import numpy as np
 import gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
-from tree_node import Tree_node
 from gym import spaces
 import os
 import warnings
 import pickle
 
+
+
 import cloudpickle
 import multiprocessing as mp
 
-os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
 mp.connection.REDUCTION = cloudpickle
 
 warnings.filterwarnings('ignore')
@@ -26,7 +26,7 @@ BLUE = (0, 0, 255)
 BLACK = (0, 0, 0)
 ORANGE = (255, 165, 0)
 FPS = 60
-size = 1920 * 0.75, 1080 * 0.75 - 31
+size = 1920, 1080
 OFFSET_X = size[0] // 2
 OFFSET_Y = size[1] // 2
 GREEN = (0, 255, 0)
@@ -56,10 +56,6 @@ def normal_round(num, n_digits=0):
         return int(num * digit_value + 0.5) / digit_value
 
 
-def redondear_n_decimal(numero, n):
-    return math.ceil(numero * 10 ** n) / 10 ** n
-
-
 class Game:
     MINING_SPEED = 1
 
@@ -72,14 +68,7 @@ class Item:
         self.components = components
         self.n_com = n_com
         self.made_in = made_in
-        if excesses:
-            self.excesses = excesses
-        else:
-            if self.n_com:
-                self.excesses = [[[], []]] * len(self.n_com)
-            else:
-                self.excesses = [[[], []]]
-
+        self.excesses = excesses
         if img_name:
             self.img_name = "Icons/" + img_name
         else:
@@ -87,6 +76,167 @@ class Item:
 
 
 selection = "silicon_ore"
+
+
+class Tree_node:
+    def __init__(self, data, quantity=None, excess=None):
+        self.children = []
+        self.data = data
+        self.quantity = copy.deepcopy(quantity) if quantity else None
+        self.excess = copy.deepcopy(excess) if excess else None
+        self.parent = None
+
+    def add_child(self, child):
+        child.parent = self
+        self.children.append(child)
+
+    def tree_from_edge(self, edges):
+        for edge in edges:
+            if edge[0] == self.data:
+                new_child = Tree_node(edge[1])
+                new_child.tree_from_edge(edges)
+                self.add_child(new_child)
+        return self
+
+    def add_quantity(self, name, quantity):
+        if self.data == name:
+            self.quantity = quantity
+        else:
+            for child in self.children:
+                child.add_quantity(name, quantity)
+
+    def add_excess(self, name, excess):
+        if self.data == name:
+            self.excess = excess
+        else:
+            for child in self.children:
+                child.add_excess(name, excess)
+
+    def draw(self, prefix='', is_last_child=False):
+        print(prefix + ('└' if is_last_child else '├') + '── ' + str(self.data) + " " + str(self.quantity) + " " + str(
+            self.excess))
+        for i, child in enumerate(self.children):
+            child.draw(prefix + ('    ' if is_last_child else '│   '), i == len(self.children) - 1)
+
+    def potential_exchgn(self, init, search):
+        result_array = []
+        if search in self.data:
+            result_array.append(self.data)
+        if init != self.data:
+            for child in self.children:
+                if child.data != init:
+                    for out in child.potential_exchgn(init, search):
+                        result_array.append(out)
+        return result_array
+
+    def get_node_by_name(self, data):
+        if self.data == data:
+            return self
+        else:
+            for child in self.children:
+                node = child.get_node_by_name(data)
+                if node is not None:
+                    return node
+        return None
+
+    def update_tree(self, sends, original_tree):
+        if type(self.parent) == type(None):
+            if self.data in sends.keys():
+                self.quantity = original_tree.get_node_by_name(self.data).quantity - sum(sends[self.data])
+            else:
+                self.quantity = original_tree.get_node_by_name(self.data).quantity
+        else:
+            item = "_".join(self.parent.data.split("_")[:-1])
+            item_act = "_".join(self.data.split("_")[:-1])
+            if type(Graph.ITEMS[item].n) == list:
+                items = []
+                for child in self.parent.children:
+                    items.append("_".join(child.data.split("_")[:-1]))
+                for pos_i, pos in enumerate(Graph.ITEMS[item].components):
+                    if check_same_items(items, pos):
+                        posi_index = pos_i
+                com_index = Graph.ITEMS[item].components[posi_index].index(item_act)
+                if self.data in sends.keys():
+                    self.quantity = self.parent.quantity * Graph.ITEMS[item].n_com[posi_index][com_index] / \
+                                    Graph.ITEMS[item].n[posi_index] - sum(sends[self.data])
+                else:
+                    self.quantity = self.parent.quantity * Graph.ITEMS[item].n_com[posi_index][com_index] / \
+                                    Graph.ITEMS[item].n[posi_index]
+            else:
+                com_index = Graph.ITEMS[item].components.index(item_act)
+                if self.data in sends.keys():
+                    self.quantity = self.parent.quantity * Graph.ITEMS[item].n_com[com_index] / Graph.ITEMS[
+                        item].n - sum(sends[self.data])
+                else:
+                    self.quantity = self.parent.quantity * Graph.ITEMS[item].n_com[com_index] / Graph.ITEMS[item].n
+
+        item = "_".join(self.data.split("_")[:-1])
+        if type(Graph.ITEMS[item].n) == list:
+            items = []
+            for child in self.children:
+                items.append("_".join(child.data.split("_")[:-1]))
+
+            for pos_i, pos in enumerate(Graph.ITEMS[item].components):
+                if check_same_items(items, pos):
+                    posi_index = pos_i
+            new_excs = []
+            if Graph.ITEMS[item].excesses[posi_index]:
+                for excs_num in Graph.ITEMS[item].excesses[posi_index][1]:
+                    new_excs.append(excs_num / Graph.ITEMS[item].n[posi_index] * self.quantity)
+                    self.excess = [Graph.ITEMS[item].excesses[posi_index][0], new_excs]
+        else:
+            new_excs = []
+            if Graph.ITEMS[item].excesses:
+                for excs_num in Graph.ITEMS[item].excesses[1]:
+                    new_excs.append(excs_num / Graph.ITEMS[item].n * self.quantity)
+                    self.excess = [Graph.ITEMS[item].excesses[0], new_excs]
+
+        for child in self.children:
+            child.update_tree(sends, original_tree)
+        return
+
+    def get_excess_dict(self):
+        excess_dict = {}
+        self._collect_excesses(excess_dict)
+        return excess_dict
+
+    def _collect_excesses(self, excess_dict):
+        if self.excess is not None:
+            excess_dict[self.data] = self.excess
+        for child in self.children:
+            child._collect_excesses(excess_dict)
+    def sub_excesses(self, sends_excs):
+        if self.data in sends_excs:
+            for excess_ind, excess_num in enumerate(self.excess[1]):
+                self.excess[1][excess_ind] -= sends_excs[self.data][1][excess_ind]
+
+        for child in self.children:
+            child.sub_excesses(sends_excs)
+
+    def reward(self):
+        exc_num_act = 0
+        if self.quantity < 0:
+            exc_num_act += abs(self.quantity)
+        if self.excess:
+            for exc_qtty in self.excess[1]:
+                exc_num_act += abs(exc_qtty)
+        for child in self.children:
+            exc_num_act += child.reward()
+        return exc_num_act
+
+    def observe(self, obs=None):
+        if not obs:
+            obs = []
+        if self.excess:
+            for exc_qtty in self.excess[1]:
+                obs.append(exc_qtty)
+        if self.children:
+            for child in self.children:
+                ret = child.observe()
+                for ret_num in ret:
+                    obs.append(ret_num)
+
+        return obs
 
 
 def isListEmpty(inList):
@@ -131,7 +281,6 @@ class Excess_manager(gym.Env):
         return obs
 
     def step(self, action):
-
         action = action[0]
         info = {}
         done = False
@@ -179,12 +328,10 @@ class Excess_manager(gym.Env):
         factories = line.get_factories(per_min)
         count = line.count_factories(factories)
         fact_array = line.factories_array(factories)
-        if min(info["observation"]) < -10 / np.e:
-            reward = min(info["observation"])
-        elif 0 > min(info["observation"]) > -10 / np.e:
-            reward = -10 / np.e
+        if min(info["observation"]) < 0:
+            reward = -10
         else:
-            reward = 10 * np.e ** -(count / self.count_original) - 10 / np.e
+            reward = 10 * np.e ** -(count / self.count_original)
         info["tree"] = copy.deepcopy(self.tree)
         info["sends2"] = copy.deepcopy(sends2)
         info["sends"] = copy.deepcopy(sends)
@@ -198,10 +345,10 @@ class Excess_manager(gym.Env):
 
 
 class Graph:
-    MAX_ASSEMBLER_TIER = 1
-    MAX_SMELTING_TIER = 1
-    MAX_MINING_TIER = 1
-    MAX_CHEMICAL_TIER = 1
+    MAX_ASSEMBLER_TIER = 3
+    MAX_SMELTING_TIER = 2
+    MAX_MINING_TIER = 2
+    MAX_CHEMICAL_TIER = 2
     not_able = []
     factory_images = {"assembler": ["Icons/Icon_Assembling_Machine_Mk.I.png", "Icons/Icon_Assembling_Machine_Mk.II.png",
                                     "Icons/Icon_Assembling_Machine_Mk.III.png"],
@@ -231,8 +378,8 @@ class Graph:
         "magnetic_coil": Item("magnetic_coil", 2, 1, ["magnet", "copper_ingot"], [2, 1], "Icon_Magnetic_Coil.png",
                               "assembler"),
 
-        "conveyor_belt_mk.I": Item("conveyor_belt_mk.I", 3, 1, ["iron_ingot", "gear"], [2, 1],
-                                   "Icon_Conveyor_Belt_Mk.I.png",
+        "conveyor_belt_mk.I": Item("conveyor_belt_mk.I", 3, 1, ["iron_ingot", "circuit_board"], [1, 1],
+                                   "Icon_Sorter_Mk.I.png",
                                    "assembler"),
         "sorter_mk.I": Item("sorter_mk.I", 1, 1, ["iron_ingot", "gear"], [2, 1],
                             "Icon_Conveyor_Belt_Mk.I.png",
@@ -343,12 +490,6 @@ class Graph:
             self.factories = self.get_factories(self.per_min)
             self.factories2 = self.get_factories(self.per_min_2)
             print("Factories", self.count_factories(self.factories), self.count_factories(self.factories2))
-
-    def recalc(self):
-        self.colour_edges()
-        self.factories = self.get_factories(self.per_min)
-        self.factories2 = self.get_factories(self.per_min_2)
-        print("Factories", self.count_factories(self.factories), self.count_factories(self.factories2))
 
     def get_vertexes(self):
         vertexes = []
@@ -497,7 +638,6 @@ class Graph:
         get_combination([[self.objective]], root)
         self.Tree = root
         self.all_posibilities = len(get_all_paths(root))
-        print("ALL PATHS", get_all_paths(root)[ind])
         return get_edge_from_comb(get_all_paths(root)[ind])
 
     def layer(self, objs):
@@ -572,8 +712,8 @@ class Graph:
                 component_ind = Graph.ITEMS[item].components[n_com_ind].index(component)
                 per_min[edge[1]] = per_min[edge[0]] / Graph.ITEMS[item].n[n_com_ind] * \
                                    Graph.ITEMS[item].n_com[n_com_ind][component_ind]
-                print(item,Graph.ITEMS[item].excesses, n_com_ind)
-                for excess_name_i, excess_name in enumerate(Graph.ITEMS[item].excesses[n_com_ind][0]) :
+
+                for excess_name_i, excess_name in enumerate(Graph.ITEMS[item].excesses[n_com_ind][0]):
                     if excess_name not in excesses_graphs.keys():
                         excesses_graphs[excess_name] = np.zeros((len(self.vertexes), len(self.vertexes)))
                     excesses_graphs[excess_name][self.vertexes.index(edge[0])][self.vertexes.index(edge[0])] = \
@@ -631,14 +771,14 @@ class Graph:
         best_action = None
         best_send2 = None
         best_send = None
-        bestreward = -np.inf
+        bestreward = -10
 
         def make_env():
             return Excess_manager(n_acts, n_obs, fact_tree, original_tree, dict_potential, excesses, dict_excesses,
                                   relation_dict, self.per_min)
 
         if n_obs > 0:
-            env = DummyVecEnv([make_env for _ in range(1)])
+            env = SubprocVecEnv([make_env for _ in range(4)])
             model = PPO("MlpPolicy", env, verbose=1)
             obs = env.reset()
             for i in range(5):
@@ -646,17 +786,13 @@ class Graph:
                 print(action)
                 obs, rewards, done, info = env.step(action)
 
-                if np.any(done):
+                if done:
                     break
             print(obs, rewards, done, action, info)
             env.close()
             rewstd = -1
-            rewmean = -np.inf
-            min_delta = 0.001
-            patience = 30
-            prev_mean_reward = -np.inf
-            no_improvement_counter = 0
-            while rewstd > 10 ** -6 or np.round(np.mean(rewmean), 1) < 0:
+            rewmean = -10
+            while rewstd > 10 ** -6 or np.round(np.mean(rewmean), 1) == -10:
                 model.learn(total_timesteps=10_000)
 
                 print("________")
@@ -675,7 +811,7 @@ class Graph:
                     sends2.append(info[0]["sends2"])
                     sends.append(info[0]["sends"])
                     actions.append(action)
-                rewmean_avg = np.mean(rewmean)
+
                 rewstd = np.std(rewmean)
                 if max(rewmean) > bestreward:
                     bestreward = max(rewmean)
@@ -685,15 +821,6 @@ class Graph:
                     best_action = copy.deepcopy(actions[np.argmax(np.array(rewmean))])
                 print("MEAN", np.round(np.mean(rewmean), 1), "+/-", rewstd,
                       np.round(rewstd / np.mean(rewmean), 2))
-
-                if abs(rewmean_avg - prev_mean_reward) < min_delta and rewmean_avg >= 0:
-                    no_improvement_counter += 1
-                else:
-                    no_improvement_counter = 0
-
-                if no_improvement_counter >= patience:
-                    break
-                prev_mean_reward = rewmean_avg
             print("BESTTREE")
             besttree.draw()
 
@@ -1051,14 +1178,13 @@ class Graph:
                                                       positions[vb][0] - positions[va][0]) ** 2))))
 
                         imp = pygame.image.load(Graph.ITEMS[name_clean].img_name).convert_alpha()
-
                         imp = pygame.transform.scale(imp, (M * 2 * imp.get_width(), M * 2 * imp.get_height()))
                         imp_rect = imp.get_rect()
                         imp_rect.center = ((M * (positions[va][0] + positions[vb][0]) + 2 * OFFSET_X) / 2,
                                            (M * (positions[va][1] + positions[vb][1]) + 2 * OFFSET_Y) / 2)
                         screen.blit(imp, imp_rect)
                         font = pygame.font.Font('freesansbold.ttf', 20)
-                        text = font.render(str(redondear_n_decimal(self.per_min_excs[edge_i], 2)), True, WHITE)
+                        text = font.render(str(self.per_min_excs[edge_i]), True, WHITE)
                         text = pygame.transform.scale(text, (M * 2 * text.get_width(), M * 2 * text.get_height()))
 
                         textRect = text.get_rect()
@@ -1069,8 +1195,6 @@ class Graph:
                                                1]) + 2 * OFFSET_Y) / 2 + imp.get_height() // 2)
 
                         screen.blit(text, textRect)
-            prime_material = {}
-            total_fact_dict = {}
             for p, key in enumerate(positions):
                 name_array = key.split("_")[:-1]
                 name_clean = "_".join(name_array)
@@ -1094,13 +1218,7 @@ class Graph:
                                            (M * positions[key][1] + OFFSET_Y))
                         screen.blit(imp, imp_rect)
                         font = pygame.font.Font('freesansbold.ttf', 20)
-                        if not Graph.ITEMS[name_clean].components:
-                            if name_clean in prime_material.keys():
-                                prime_material[name_clean] += self.per_min_act[key]
-                            else:
-                                prime_material[name_clean] = self.per_min_act[key]
-
-                        text = font.render(str(redondear_n_decimal(self.per_min_act[key], 2)), True, WHITE)
+                        text = font.render(str(self.per_min_act[key]), True, WHITE)
                         text = pygame.transform.scale(text, (M * 2 * text.get_width(), M * 2 * text.get_height()))
 
                         textRect = text.get_rect()
@@ -1131,12 +1249,6 @@ class Graph:
                                     screen.blit(text, textRect)
                                     imp_fact = pygame.image.load(
                                         Graph.factory_images[self.factories_act[key][0]][i]).convert_alpha()
-                                    if fact > 0:
-                                        if self.factories_act[key][0] + "_" + str(i) in total_fact_dict.keys():
-                                            total_fact_dict[self.factories_act[key][0] + "_" + str(i)] += fact
-                                        else:
-                                            total_fact_dict[self.factories_act[key][0] + "_" + str(i)] = fact
-
                                     imp_fact = pygame.transform.scale(imp_fact,
                                                                       (text.get_height(), text.get_height()))
                                     imp_fact_rect = imp_fact.get_rect()
@@ -1147,325 +1259,6 @@ class Graph:
                                     screen.blit(imp_fact, imp_fact_rect)
 
                                     height += 1
-            for key_i, key in enumerate(prime_material.keys()):
-                if prime_material[key] > 0:
-                    imp = pygame.image.load(Graph.ITEMS[key].img_name).convert_alpha()
-                    imp = pygame.transform.scale(imp, (0.5 * imp.get_width(), 0.5 * imp.get_height()))
-                    imp_rect = imp.get_rect()
-                    imp_rect.center = (0.75 * imp.get_width(),
-                                       (key_i * 1.5 + 0.5) * imp.get_height())
-                    screen.blit(imp, imp_rect)
 
-                    font = pygame.font.Font('freesansbold.ttf', 12)
-                    text = font.render(str(redondear_n_decimal(prime_material[key], 2)), True, WHITE)
-                    text = pygame.transform.scale(text, (text.get_width(), text.get_height()))
-
-                    textRect = text.get_rect()
-                    pygame.transform.scale(text, (0.5 * text.get_width(), 0.5 * text.get_height()))
-                    # set the center of the rectangular object.
-                    textRect.midleft = (1.4 * imp.get_width(),
-                                        (key_i * 1.5 + 0.5) * imp.get_height())
-
-                    screen.blit(text, textRect)
-            last_height = 0
-            for key_i, key in enumerate(total_fact_dict.keys()):
-                fact_name = "_".join(key.split("_")[:-1])
-                fact_id = key.split("_")[-1]
-                imp = pygame.image.load(Graph.factory_images[fact_name][int(fact_id)]).convert_alpha()
-                imp = pygame.transform.scale(imp, (0.5 * imp.get_width(), 0.5 * imp.get_height()))
-                imp_rect = imp.get_rect()
-                imp_rect.center = (screen.get_width() - 0.75 * imp.get_width(),
-                                   last_height + imp.get_height() / 2)
-                screen.blit(imp, imp_rect)
-
-                font = pygame.font.Font('freesansbold.ttf', 12)
-                text = font.render(str(total_fact_dict[key]), True, WHITE)
-                text = pygame.transform.scale(text, (text.get_width(), text.get_height()))
-
-                textRect = text.get_rect()
-                pygame.transform.scale(text, (0.5 * text.get_width(), 0.5 * text.get_height()))
-                # set the center of the rectangular object.
-                textRect.midright = (screen.get_width() - 1.4 * imp.get_width(),
-                                     last_height + imp.get_height() / 2)
-
-                screen.blit(text, textRect)
-                last_height += imp.get_height()
             pygame.display.flip()
         pygame.quit()
-
-
-def build_fact(fact):
-    import pygame
-    import pygame.locals
-
-    to_place = []
-    place_id = 0
-    in_place_id = 0
-    can_place_fact = True
-    for fact_nums in fact.factories2:
-        if Graph.ITEMS["_".join(fact_nums.split('_')[:-1])].n_com:
-            print(fact.factories2)
-            if fact.factories2[fact_nums][0] not in ['mining_machine', 'oil_extraction_facility',
-                                                     'water_pumping_facility']:
-                to_place.append(fact.factories2[fact_nums])
-    print("To place:", to_place)
-    print("Edge Colours", fact.edge_colours_2)
-    to_place_next = to_place[place_id][1][in_place_id]
-    to_place_next_kind = list(Graph.factory_images.keys()).index(
-        to_place[place_id][0]) + (in_place_id + 1) / 10
-    # Definir dimensiones del grid
-    grid_width = 100
-    grid_height = 100
-
-    # Definir tamaño de cada celda
-    cell_size = 10
-    border_size = 1  # Bordas más finas
-
-    # Crear dos grids 2D llenos de ceros
-    grid1 = [[0 for _ in range(grid_width)] for _ in range(grid_height)]
-    grid2 = [[0 for _ in range(grid_width + 1)] for _ in range(grid_height + 1)]  # Grid2 es más grande
-    grid_imgs = [[0 for _ in range(grid_width + 1)] for _ in range(grid_height + 1)]
-
-    # Variables de desplazamiento y zoom
-    scroll = [0, 0]
-    zoom_level = 1
-
-    # Función para cambiar el valor de una celda
-
-    # Inicializar Pygame
-    pygame.init()
-
-    # Crear ventana de Pygame
-    window = pygame.display.set_mode((800, 600))
-
-    # Colores
-    BLACK = (0, 0, 0)
-    WHITE = (255, 255, 255)
-
-    # Variables para el control de scroll del ratón
-    dragging = False
-    last_mouse_pos = (0, 0)
-
-    # Crear una superficie transparente para el segundo grid
-    grid2_surface = pygame.Surface((800, 600))  # Ajustar tamaño de la superficie
-    grid2_surface.set_colorkey(BLACK)
-
-    # Bucle de juego
-    running = True
-
-    def check_cells(grid, x, y):
-        # Verificar si todas las celdas en el rango 3x3 pueden ser llenadas
-        for dy in range(-1, 2):
-            for dx in range(-1, 2):
-                new_x = x + dx + 1
-                new_y = y + dy + 1
-                # Si alguna celda está fuera del grid o ya tiene un valor, no permita la colocación
-                if not (0 <= new_x < len(grid[0]) and 0 <= new_y < len(grid)) or grid[new_y][new_x] != 0:
-                    return False
-        return True
-
-    def set_cell(grid, x, y, value):
-        if 0 <= x < len(grid[0]) and 0 <= y < len(grid):  # Ajustar para el tamaño del grid
-            if grid[y][x] == 0:  # Solo cambia el valor si la celda actualmente tiene un valor de 0
-                grid[y][x] = value
-
-    running = True
-    while running:
-        # Manejar eventos de Pygame
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:  # Botón izquierdo
-                    dragging = True
-                    last_mouse_pos = event.pos
-                    # Convertir posición del ratón a coordenadas del grid
-                    cell_x = round((event.pos[0] - scroll[0] - cell_size * zoom_level / 2) // (cell_size * zoom_level))
-                    cell_y = round((event.pos[1] - scroll[1] - cell_size * zoom_level / 2) // (cell_size * zoom_level))
-                    # Establecer valores en el grid
-                    if can_place_fact:
-                        # Solo intenta establecer el valor si las coordenadas están dentro del rango del grid
-                        if check_cells(grid2, cell_x, cell_y):
-                            for dy in range(-1, 2):
-                                for dx in range(-1, 2):
-                                    set_cell(grid2, cell_x + dx + 1, cell_y + dy + 1,
-                                             to_place_next_kind)  # Actualizar el grid2
-
-                            if 0 <= cell_x < len(grid_imgs[0]) and 0 <= cell_y < len(grid_imgs):
-                                grid_imgs[cell_y][cell_x] = Graph.factory_images[to_place[place_id][0]][in_place_id]
-                                print(grid_imgs[cell_y][cell_y])
-                                print(to_place_next)
-                                to_place_next -= 1
-                                if to_place_next == 0:
-                                    while to_place_next == 0:
-                                        in_place_id += 1
-                                        try:
-                                            to_place_next = to_place[place_id][1][in_place_id]
-                                            to_place_next_kind = list(Graph.factory_images.keys()).index(
-                                                to_place[place_id][0]) + (in_place_id + 1) / 10
-                                        except:
-                                            in_place_id = 0
-                                            place_id += 1
-                                            if place_id < len(to_place):
-                                                to_place_next = to_place[place_id][1][in_place_id]
-                                                to_place_next_kind = list(Graph.factory_images.keys()).index(
-                                                    to_place[place_id][0]) + (in_place_id + 1) / 10
-                                            else:
-                                                can_place_fact = False
-                                                np.set_printoptions(threshold=np.inf)
-                                                to_place_next = -1
-                                    print("To place next:", to_place)
-
-
-
-                elif event.button == 4:  # Rueda del ratón hacia arriba
-                    zoom_level += 0.1
-
-                elif event.button == 5:  # Rueda del ratón hacia abajo
-                    zoom_level = max(0.1, zoom_level - 0.1)  # Evitar el zoom level negativo o cero
-
-            elif event.type == pygame.MOUSEBUTTONUP:
-                if event.button == 1:  # Botón izquierdo
-                    dragging = False
-            elif event.type == pygame.MOUSEMOTION:
-                if dragging:
-                    dx = event.pos[0] - last_mouse_pos[0]
-                    dy = event.pos[1] - last_mouse_pos[1]
-                    scroll[0] += dx
-                    scroll[1] += dy
-                    last_mouse_pos = event.pos
-
-        # Dibujar los grids
-        window.fill(BLACK)
-        cell_draw_size = cell_size * zoom_level
-        border_draw_size = border_size * zoom_level
-        image_cache = {}  # Cache de todas las imágenes
-        for y in range(grid_height + 1):
-            for x in range(grid_width + 1):
-                image_name = grid_imgs[y][x]
-                if image_name and image_name not in image_cache:
-                    image_cache[image_name] = pygame.image.load(image_name)
-
-        # Dibujar el primer grid (grid de fondo)
-        for y in range(grid_height):
-            for x in range(grid_width):
-                rect = pygame.Rect(
-                    x * cell_draw_size + scroll[0],
-                    y * cell_draw_size + scroll[1],
-                    cell_draw_size,
-                    cell_draw_size)
-                pygame.draw.rect(window, WHITE, rect)  # Bordas blancas
-                inner_rect = pygame.Rect(
-                    rect.left + border_draw_size,
-                    rect.top + border_draw_size,
-                    cell_draw_size - 2 * border_draw_size,
-                    cell_draw_size - 2 * border_draw_size)
-                pygame.draw.rect(window, WHITE if grid1[y][x] else BLACK, inner_rect)
-
-        # Dibujar el segundo grid (desplazado medio cuadro)
-        grid2_surface.fill(BLACK)  # Limpiar la superficie antes de dibujar
-        for y in range(grid_height + 1):  # Ajustar para el tamaño del grid
-            for x in range(grid_width + 1):  # Ajustar para el tamaño del grid
-                rect = pygame.Rect(
-                    x * cell_draw_size + scroll[0] - cell_draw_size / 2,
-                    # Ajustar para el desplazamiento medio cuadro en x
-                    y * cell_draw_size + scroll[1] - cell_draw_size / 2,
-                    # Ajustar para el desplazamiento medio cuadro en y
-                    cell_draw_size,
-                    cell_draw_size)
-                # pygame.draw.rect(grid2_surface, WHITE, rect)  # Bordas blancas
-                inner_rect = pygame.Rect(
-                    rect.left,
-                    rect.top,
-                    cell_draw_size,
-                    cell_draw_size)
-                color = {
-                    0.1: ORANGE,
-                    0.2: GR_BL,
-                    0.3: BLUE
-                }.get(normal_round(grid2[y][x] % 1, 2), BLACK)
-                pygame.draw.rect(grid2_surface, color, inner_rect)
-        # Dibujar la superficie del segundo grid en la ventana
-        window.blit(grid2_surface, (0, 0))  # Mismas coordenadas que para dibujar grid1
-        for y in range(grid_height + 1):
-            for x in range(grid_width + 1):
-                if grid_imgs[y][x]:  # Si hay una imagen para esta celda
-                    # Obtén la imagen de la caché
-                    image = image_cache[grid_imgs[y][x]]
-                    # Ajusta el tamaño de la imagen al tamaño de la celda
-                    image = pygame.transform.scale(image, (int(cell_draw_size), int(cell_draw_size)))
-                    # Crea un rectángulo para la imagen
-                    image_rect = image.get_rect()
-                    # Define la posición del rectángulo (imagen)
-                    image_rect.center = ((x + 1.5) * cell_draw_size + scroll[0] - cell_draw_size / 2,
-                                         (y + 1.5) * cell_draw_size + scroll[1] - cell_draw_size / 2)
-                    # Dibuja la imagen en la ventana
-                    window.blit(image, image_rect)
-
-        pygame.display.update()
-
-    # Cerrar Pygame
-    pygame.quit()
-
-
-if __name__ == '__main__':
-    DONT_HAVE = ['sulfuric_acid_ocean', 'fire_ice_vein']
-    selection = "arc_smelter"
-    line = Graph(selection, 120)
-    line.calculate(ind=0)
-
-    filename = f"Factories/{selection}.pickle"
-
-    # Verificar si el archivo existe y se puede escribir en él
-    if not os.path.exists(filename):
-        try:
-            with open(filename, "wb") as archivo:
-                archivo.close()
-        except Exception as e:
-            print(f"Error al crear archivo: {e}")
-            exit()
-
-    contador = 0
-    print(filename)
-    idxs = []
-    with open(filename, 'rb') as archivo:
-        fact_nums = {}
-        objs = {}
-
-        while True:
-            not_add = False
-            try:
-                objeto = pickle.load(archivo)
-                objs[objeto.ind] = objeto
-                idxs.append(objeto.ind)
-                obj_vertexes = []
-                for vertex in objeto.vertexes:
-                    obj_vertexes.append("_".join(vertex.split('_')[:-1]))
-                for dont in DONT_HAVE:
-                    if dont in obj_vertexes:
-                        not_add = True
-                if not_add:
-                    continue
-                val1 = objeto.count_factories(objeto.factories)
-                try:
-                    val2 = objeto.count_factories(objeto.factories2)
-                except:
-                    val2 = val1
-                fact_nums[objeto.ind] = min(val1, val2)
-                contador += 1
-            except EOFError:
-                break
-        archivo.close()
-        sorted_fact_nums = dict(sorted(fact_nums.items(), key=lambda item: item[1]))
-
-    for key in sorted_fact_nums.keys():
-        objs[key].recalc()
-        objs[key].draw()
-        # build_fact(objs[key])
-    print(contador)
-    with open(filename, 'wb') as archivo:  # Asegúrate de abrir el archivo en modo 'wb' para escribir en binario
-        for ind_count in range(contador, line.all_posibilities):
-            line.calculate(ind=ind_count)
-            pickle.dump(line, archivo)  # Guardar el objeto line en el archivo
-            ind_count += 1
